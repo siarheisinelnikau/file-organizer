@@ -1,12 +1,7 @@
 /target/
 /dist/
-*.pdb
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-*.log
-/.local/
-/.test-output/
+*.db
+*.db-shm
+*.db-wal
+*.lock-file
 
