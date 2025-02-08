@@ -246,11 +246,13 @@ impl Organizer {
                 }
             }
         }
-        if self.shutting_down && self.stopped && !self.install_sent {
-            if let Some(download) = self.downloaded.clone() {
-                self.install_sent = true;
-                self.update_command(UpdateCommand::Install(download));
-            }
+        if self.shutting_down
+            && self.stopped
+            && !self.install_sent
+            && let Some(download) = self.downloaded.clone()
+        {
+            self.install_sent = true;
+            self.update_command(UpdateCommand::Install(download));
         }
         if self.may_close {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -262,20 +264,15 @@ impl Organizer {
             return;
         }
         self.shutting_down = true;
-        self.worker
-            .cancel
-            .store(true, std::sync::atomic::Ordering::Relaxed);
         if self.stopped {
             if self.downloaded.is_none() {
                 self.may_close = true;
             }
             return;
         }
-        if self.dirty {
-            self.send(Command::Save(self.config.clone()));
-            self.dirty = false;
-        }
-        self.send(Command::Shutdown);
+        self.worker
+            .shutdown(self.dirty.then(|| self.config.clone()));
+        self.dirty = false;
     }
 
     fn header(&mut self, ui: &mut egui::Ui) {
@@ -369,13 +366,13 @@ impl Organizer {
                 text,
             );
         }
-        if self.available_update.is_some() && self.page != Page::Settings {
-            if ui
+        if self.available_update.is_some()
+            && self.page != Page::Settings
+            && ui
                 .link(format!("{} — open Updates", self.update_status))
                 .clicked()
-            {
-                self.page = Page::Settings;
-            }
+        {
+            self.page = Page::Settings;
         }
         ui.add_space(10.0);
     }
@@ -611,11 +608,10 @@ impl Organizer {
                 if ui.add_enabled(!self.update_busy, egui::Button::new("Check for updates")).clicked() {
                     self.update_status = "Checking for updates…".into(); self.update_command(UpdateCommand::Check);
                 }
-                if let Some(update) = self.available_update.clone() {
-                    if ui.add_enabled(!self.update_busy && !self.busy && !self.watching, egui::Button::new("Download and install (restarts app)")).clicked() {
+                if let Some(update) = self.available_update.clone()
+                    && ui.add_enabled(!self.update_busy && !self.busy && !self.watching, egui::Button::new("Download and install (restarts app)")).clicked() {
                         self.update_status = "Downloading and verifying…".into(); self.download_progress = 0.0;
                         self.update_command(UpdateCommand::Download(update));
-                    }
                 }
             });
             if self.update_busy { ui.add(egui::ProgressBar::new(self.download_progress).show_percentage()); }

@@ -32,13 +32,21 @@ fn fingerprint(path: &Path, stamp: &Stamp) -> String {
 
 impl Journal {
     pub fn open(path: &Path) -> Result<Self> {
+        disk::check_path(path)?;
+        for suffix in ["-wal", "-shm"] {
+            let mut sidecar = path.as_os_str().to_owned();
+            sidecar.push(suffix);
+            disk::check_path(Path::new(&sidecar))?;
+        }
         let db = Connection::open(path)?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
             CREATE TABLE IF NOT EXISTS config (id INTEGER PRIMARY KEY CHECK(id=1), json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS operations (
                 id TEXT PRIMARY KEY, json TEXT NOT NULL, phase TEXT NOT NULL, error TEXT NOT NULL DEFAULT '',
                 created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S UTC','now')));
-            CREATE TABLE IF NOT EXISTS processed (fingerprint TEXT PRIMARY KEY);")?;
+            CREATE TABLE IF NOT EXISTS processed (fingerprint TEXT PRIMARY KEY);
+            CREATE INDEX IF NOT EXISTS operations_pending ON operations(phase)
+                WHERE phase NOT IN ('Done','Undone','Recovered');")?;
         Ok(Self { db })
     }
 
@@ -85,6 +93,20 @@ impl Journal {
 
     pub fn is_suppressed(fact: &FileFact, keys: &HashSet<String>) -> bool {
         keys.contains(&fingerprint(&fact.path, &fact.stamp))
+    }
+
+    pub fn unsuppressed(&self, files: Vec<FileFact>) -> Result<Vec<FileFact>> {
+        // Query only the bounded scan's candidates rather than loading all lifetime history.
+        let mut statement = self
+            .db
+            .prepare("SELECT 1 FROM processed WHERE fingerprint=?1")?;
+        let mut eligible = Vec::new();
+        for fact in files {
+            if !statement.exists([fingerprint(&fact.path, &fact.stamp)])? {
+                eligible.push(fact);
+            }
+        }
+        Ok(eligible)
     }
 
     fn remember(&self, path: &Path, stamp: &Stamp) -> Result<()> {
