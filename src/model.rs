@@ -125,5 +125,9 @@ pub struct Plan {
 
 pub fn path_key(path: &std::path::Path) -> String {
     let text = path.to_string_lossy().replace('\\', "/");
-    if cfg!(windows) { text.to_lowercase() } else { text }
+    if cfg!(windows) {
+        text.to_lowercase()
+    } else {
+        text
+    }
 }
