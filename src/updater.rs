@@ -5,7 +5,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::Duration,
@@ -133,6 +133,33 @@ pub struct Downloaded {
     pub version: Version,
 }
 
+/// Validate the release's PE platform before replacing a working installation.
+pub fn verify_executable(path: &Path) -> Result<()> {
+    let mut file = fs::File::open(path)?;
+    let mut dos = [0u8; 64];
+    file.read_exact(&mut dos)
+        .context("Update is not a complete Windows executable")?;
+    ensure!(
+        &dos[..2] == b"MZ",
+        "Update has no Windows executable header"
+    );
+    let offset = u32::from_le_bytes(dos[60..64].try_into()?) as u64;
+    ensure!(
+        (64..=1024 * 1024).contains(&offset),
+        "Invalid PE header offset"
+    );
+    file.seek(SeekFrom::Start(offset))?;
+    let mut pe = [0; 26];
+    file.read_exact(&mut pe).context("Incomplete PE header")?;
+    ensure!(
+        &pe[..4] == b"PE\0\0"
+            && u16::from_le_bytes([pe[4], pe[5]]) == 0x8664
+            && u16::from_le_bytes([pe[24], pe[25]]) == 0x20b,
+        "Update must be a Windows x64 PE32+ executable"
+    );
+    Ok(())
+}
+
 pub fn download(
     update: &Update,
     directory: &Path,
@@ -208,6 +235,8 @@ pub fn download(
             "SHA-256 verification failed; installed executable was preserved"
         );
         output.sync_all()?;
+        drop(output);
+        verify_executable(&path)?;
         Ok(Downloaded {
             path: path.clone(),
             sha256: actual,
@@ -270,6 +299,7 @@ pub fn apply_helper(args: &[String]) -> Result<()> {
         crate::filesystem::digest(staged)? == args[5],
         "Staged update verification failed"
     );
+    verify_executable(staged)?;
     wait_for_parent(pid)?;
     let backup = target.with_file_name(format!(".FileOrganizer-{}.backup", uuid::Uuid::new_v4()));
     // Copy beside the target first: app data and the executable may live on different volumes.
@@ -284,7 +314,12 @@ pub fn apply_helper(args: &[String]) -> Result<()> {
     fs::rename(target, &backup)
         .context("Cannot replace the executable; check folder permissions and running instances")?;
     if let Err(e) = fs::rename(&replacement, target) {
-        let _ = fs::rename(&backup, target);
+        if let Err(restore) = fs::rename(&backup, target) {
+            anyhow::bail!(
+                "Install failed: {e}. Backup restoration also failed: {restore}. Original executable is at {}",
+                backup.display()
+            );
+        }
         return Err(e).context("Install failed; previous executable was restored");
     }
     let mut restart = Command::new(target);
@@ -294,8 +329,13 @@ pub fn apply_helper(args: &[String]) -> Result<()> {
         .arg(std::env::current_exe()?)
         .arg(staged);
     if let Err(e) = restart.spawn() {
-        let _ = fs::remove_file(target);
-        let _ = fs::rename(&backup, target);
+        fs::remove_file(target).with_context(|| format!("Restart failed: {e}; replacement could not be removed. Original executable is at {}", backup.display()))?;
+        fs::rename(&backup, target).with_context(|| {
+            format!(
+                "Restart failed: {e}; backup restoration failed. Original executable is at {}",
+                backup.display()
+            )
+        })?;
         return Err(e).context("Restart failed; previous executable was restored");
     }
     Ok(())
@@ -310,7 +350,13 @@ fn wait_for_parent(pid: u32) -> Result<()> {
     // No elevation. The helper only waits for its own application process.
     let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
     if handle.is_null() {
-        return Ok(());
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(87) {
+            return Ok(());
+        } // PID has already exited.
+        return Err(error).context(
+            "Cannot confirm that the old application exited; installation was not attempted",
+        );
     }
     let status = unsafe { WaitForSingleObject(handle, 120_000) };
     unsafe {
@@ -356,6 +402,12 @@ pub fn clean_after_update(args: &[String], directory: &Path) -> Result<()> {
     // A helper may still be exiting. Retaining it is harmless if Windows refuses deletion.
     for path in [backup, helper, staged] {
         let _ = fs::remove_file(path);
+    }
+    if let Some(parent) = directory.parent() {
+        let error = parent.join("update-error.txt");
+        if crate::filesystem::check_path(&error).is_ok() {
+            let _ = fs::remove_file(error);
+        }
     }
     Ok(())
 }

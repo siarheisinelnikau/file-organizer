@@ -30,7 +30,12 @@ pub fn matches(pattern: &str, text: &str) -> bool {
 }
 
 pub fn safe_filename(name: &str) -> bool {
-    let stem = name.split('.').next().unwrap_or("").to_uppercase();
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(' ')
+        .to_uppercase();
     !name.is_empty()
         && name != "."
         && name != ".."
@@ -42,6 +47,7 @@ pub fn safe_filename(name: &str) -> bool {
         && !(stem.len() == 4
             && (stem.starts_with("COM") || stem.starts_with("LPT"))
             && stem.ends_with(['1', '2', '3', '4', '5', '6', '7', '8', '9']))
+        && !["COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³"].contains(&stem.as_str())
         && name.encode_utf16().count() <= 240
 }
 

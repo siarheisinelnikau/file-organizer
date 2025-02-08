@@ -23,7 +23,11 @@ pub fn now_ns() -> u128 {
 pub fn stamp(meta: &Metadata) -> Result<Stamp> {
     Ok(Stamp {
         bytes: meta.len(),
-        modified_ns: meta.modified()?.duration_since(UNIX_EPOCH)?.as_nanos(),
+        modified_ns: meta
+            .modified()?
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
     })
 }
 
@@ -53,6 +57,25 @@ pub fn check_path(path: &Path) -> Result<()> {
             "Relative path components are forbidden"
         );
         current.push(part);
+        #[cfg(windows)]
+        if let Component::Prefix(prefix) = part {
+            ensure!(
+                matches!(
+                    prefix.kind(),
+                    std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)
+                ),
+                "Only absolute local drive paths are supported"
+            );
+            // A prefix such as \\?\C: is not itself an inspectable directory until RootDir is appended.
+            continue;
+        }
+        #[cfg(windows)]
+        if let Component::Normal(name) = part {
+            ensure!(
+                !name.to_string_lossy().contains(':'),
+                "Alternate data stream paths are forbidden"
+            );
+        }
         match fs::symlink_metadata(&current) {
             Ok(meta) => ensure!(
                 !is_link(&meta),
@@ -140,7 +163,7 @@ pub fn scan(config: &Config) -> Result<Scan> {
     for destination in &config.destination_roots {
         root(destination)?;
     }
-    let excluded: Vec<_> = config
+    let mut excluded: Vec<_> = config
         .rules
         .iter()
         .filter(|r| r.enabled && r.action != crate::model::Action::Rename)
@@ -151,6 +174,8 @@ pub fn scan(config: &Config) -> Result<Scan> {
                 .and_then(|p| p.parent().map(Path::to_owned))
         })
         .collect();
+    excluded.sort();
+    excluded.dedup();
     let mut out = Scan {
         files: Vec::new(),
         occupied: HashSet::new(),
@@ -158,6 +183,7 @@ pub fn scan(config: &Config) -> Result<Scan> {
     };
     let mut seen = HashSet::new();
     let mut dirs = 0;
+    let mut seen_directories = HashSet::new();
     let mut total_entries = 0;
     for source in sources {
         ensure!(
@@ -166,6 +192,9 @@ pub fn scan(config: &Config) -> Result<Scan> {
         );
         let mut stack = vec![source.clone()];
         while let Some(dir) = stack.pop() {
+            if !seen_directories.insert(path_key(&dir)) {
+                continue;
+            }
             dirs += 1;
             ensure!(
                 dirs <= DIRECTORY_LIMIT,
@@ -182,7 +211,10 @@ pub fn scan(config: &Config) -> Result<Scan> {
             };
             for entry in entries {
                 total_entries += 1;
-                ensure!(total_entries <= 30_000, "Scan exceeds 30000 directory entries; choose a narrower source");
+                ensure!(
+                    total_entries <= 30_000,
+                    "Scan exceeds 30000 directory entries; choose a narrower source"
+                );
                 let entry = entry?;
                 let path = entry.path();
                 let meta = fs::symlink_metadata(&path)?;
@@ -344,16 +376,26 @@ pub fn digest(path: &Path) -> Result<String> {
 /// Publish within the destination directory without replacing an existing file.
 pub fn publish(stage: &Path, destination: &Path) -> Result<()> {
     check_path(destination)?;
-    #[cfg(windows)] {
+    #[cfg(windows)]
+    {
         use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
+        use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_WRITE_THROUGH, MoveFileExW};
         let from: Vec<u16> = stage.as_os_str().encode_wide().chain(Some(0)).collect();
-        let to: Vec<u16> = destination.as_os_str().encode_wide().chain(Some(0)).collect();
+        let to: Vec<u16> = destination
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
         // Omitting MOVEFILE_REPLACE_EXISTING is essential: a collision must fail atomically.
         let ok = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) };
-        ensure!(ok != 0, "Publish without overwriting: {}", std::io::Error::last_os_error());
+        ensure!(
+            ok != 0,
+            "Publish without overwriting: {}",
+            std::io::Error::last_os_error()
+        );
     }
-    #[cfg(not(windows))] {
+    #[cfg(not(windows))]
+    {
         fs::hard_link(stage, destination).context("Publish without overwriting")?;
         fs::remove_file(stage)?;
     }

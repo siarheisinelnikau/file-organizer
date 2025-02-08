@@ -11,7 +11,7 @@ use std::{
     fs::{self, OpenOptions},
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
     },
@@ -52,7 +52,8 @@ pub enum Event {
 pub struct Worker {
     pub commands: SyncSender<Command>,
     pub events: Receiver<Event>,
-    pub cancel: Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
+    shutdown_config: Arc<Mutex<Option<Config>>>,
 }
 
 impl Worker {
@@ -61,6 +62,8 @@ impl Worker {
         let (sender, events) = mpsc::sync_channel(32);
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
+        let shutdown_config = Arc::new(Mutex::new(None));
+        let worker_shutdown_config = shutdown_config.clone();
         let callback_commands = commands.clone();
         thread::spawn(move || {
             let emit = |event| {
@@ -73,6 +76,7 @@ impl Worker {
                 callback_commands,
                 &emit,
                 &worker_cancel,
+                &worker_shutdown_config,
             ) {
                 emit(Event::Error(format!("{e:#}")));
             }
@@ -82,7 +86,17 @@ impl Worker {
             commands,
             events,
             cancel,
+            shutdown_config,
         }
+    }
+
+    /// Shutdown cannot be lost when notification traffic fills the bounded command queue.
+    pub fn shutdown(&self, save: Option<Config>) {
+        if let Ok(mut slot) = self.shutdown_config.lock() {
+            *slot = save;
+        }
+        self.cancel.store(true, Ordering::Relaxed);
+        let _ = self.commands.try_send(Command::Shutdown);
     }
 }
 
@@ -136,12 +150,7 @@ impl Stability {
 fn make_plan(config: &Config, journal: &Journal, stability: &mut Stability) -> Result<Plan> {
     let scanned = disk::scan(config)?;
     let count = scanned.files.len();
-    let keys = journal.suppressed()?;
-    let eligible = scanned
-        .files
-        .into_iter()
-        .filter(|f| !Journal::is_suppressed(f, &keys))
-        .collect();
+    let eligible = journal.unsuppressed(scanned.files)?;
     let (ready, waiting) = stability.ready(
         eligible,
         Instant::now(),
@@ -223,9 +232,11 @@ fn run(
     commands: SyncSender<Command>,
     emit: &impl Fn(Event),
     cancel: &AtomicBool,
+    shutdown_config: &Mutex<Option<Config>>,
 ) -> Result<()> {
-    fs::create_dir_all(&directory)?;
     disk::check_path(&directory)?;
+    fs::create_dir_all(&directory)?;
+    disk::check_path(&directory.join("instance.lock-file"))?;
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -238,6 +249,16 @@ fn run(
     let mut config = journal.config()?;
     emit(Event::Loaded(config.clone()));
     history(&journal, emit)?;
+    let error_path = directory.join("update-error.txt");
+    if error_path.try_exists()? {
+        disk::check_path(&error_path)?;
+        if fs::metadata(&error_path)?.len() <= 64 * 1024 {
+            emit(Event::Error(format!(
+                "Previous update failed: {}",
+                fs::read_to_string(error_path)?
+            )));
+        }
+    }
     let mut watcher = None;
     let mut automatic = false;
     let mut due: Option<Instant> = None;
@@ -245,6 +266,16 @@ fn run(
     let mut current = Plan::default();
     let mut generation = 0u64;
     loop {
+        if cancel.load(Ordering::Relaxed) {
+            if let Some(save) = shutdown_config
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Shutdown settings lock failed"))?
+                .take()
+            {
+                journal.save_config(&save)?;
+            }
+            break;
+        }
         let next = if let Some(deadline) = due {
             match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                 Ok(command) => Some(command),
@@ -258,6 +289,13 @@ fn run(
             }
         };
         if matches!(next, Some(Command::Shutdown)) {
+            if let Some(save) = shutdown_config
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Shutdown settings lock failed"))?
+                .take()
+            {
+                journal.save_config(&save)?;
+            }
             break;
         }
         if matches!(next, Some(Command::Changed)) {
