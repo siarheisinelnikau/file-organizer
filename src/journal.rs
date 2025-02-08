@@ -3,7 +3,11 @@ use crate::{filesystem as disk, model::*};
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, fs, path::{Path, PathBuf}};
+use std::{
+    collections::HashSet,
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Entry {
@@ -18,7 +22,9 @@ pub struct Entry {
     pub created: String,
 }
 
-pub struct Journal { db: Connection }
+pub struct Journal {
+    db: Connection,
+}
 
 fn fingerprint(path: &Path, stamp: &Stamp) -> String {
     format!("{}|{}|{}", path_key(path), stamp.bytes, stamp.modified_ns)
@@ -82,54 +88,105 @@ impl Journal {
     }
 
     fn remember(&self, path: &Path, stamp: &Stamp) -> Result<()> {
-        self.db.execute("INSERT OR IGNORE INTO processed(fingerprint) VALUES(?1)", [fingerprint(path, stamp)])?;
+        self.db.execute(
+            "INSERT OR IGNORE INTO processed(fingerprint) VALUES(?1)",
+            [fingerprint(path, stamp)],
+        )?;
         Ok(())
     }
 
     fn phase(&self, id: &str, phase: &str) -> Result<()> {
-        self.db.execute("UPDATE operations SET phase=?2,error='' WHERE id=?1", params![id, phase])?;
+        self.db.execute(
+            "UPDATE operations SET phase=?2,error='' WHERE id=?1",
+            params![id, phase],
+        )?;
         Ok(())
     }
 
     fn error(&self, id: &str, error: &anyhow::Error) -> Result<()> {
-        self.db.execute("UPDATE operations SET error=?2 WHERE id=?1", params![id, format!("{error:#}")])?;
+        self.db.execute(
+            "UPDATE operations SET error=?2 WHERE id=?1",
+            params![id, format!("{error:#}")],
+        )?;
         Ok(())
     }
 
     pub fn execute(&self, operation: &Operation, config: &Config) -> Result<()> {
-        ensure!(self.entries(true)?.is_empty(), "Recover unfinished operations before applying another plan");
+        ensure!(
+            self.entries(true)?.is_empty(),
+            "Recover unfinished operations before applying another plan"
+        );
         let source = disk::inside(&operation.source, &config.source_roots)?;
-        let destination_roots = if operation.action == Action::Rename { &config.source_roots } else { &config.destination_roots };
+        let destination_roots = if operation.action == Action::Rename {
+            &config.source_roots
+        } else {
+            &config.destination_roots
+        };
         let destination = disk::inside(&operation.destination, destination_roots)?;
-        ensure!(path_key(&source) != path_key(&destination), "Source and destination are identical");
-        ensure!(!destination.try_exists()?, "Destination appeared after preview; generate a fresh plan");
+        ensure!(
+            path_key(&source) != path_key(&destination),
+            "Source and destination are identical"
+        );
+        ensure!(
+            !destination.try_exists()?,
+            "Destination appeared after preview; generate a fresh plan"
+        );
         let mut input = disk::LockedFile::open(&source, operation.action != Action::Copy)?;
-        ensure!(input.stamp()? == operation.stamp, "Source changed after preview; generate a fresh plan");
+        ensure!(
+            input.stamp()? == operation.stamp,
+            "Source changed after preview; generate a fresh plan"
+        );
         let hash = input.digest()?;
         let id = uuid::Uuid::new_v4().to_string();
-        let stage = destination.parent().context("No destination parent")?.join(format!(".fo-{id}.tmp"));
+        let stage = destination
+            .parent()
+            .context("No destination parent")?
+            .join(format!(".fo-{id}.tmp"));
         let entry = Entry {
-            id: id.clone(), operation: Operation { source: source.clone(), destination: destination.clone(), ..operation.clone() },
-            sha256: hash.clone(), source_roots: config.source_roots.clone(), destination_roots: destination_roots.clone(),
-            stage, phase: "Prepared".into(), error: String::new(), created: String::new(),
+            id: id.clone(),
+            operation: Operation {
+                source: source.clone(),
+                destination: destination.clone(),
+                ..operation.clone()
+            },
+            sha256: hash.clone(),
+            source_roots: config.source_roots.clone(),
+            destination_roots: destination_roots.clone(),
+            stage,
+            phase: "Prepared".into(),
+            error: String::new(),
+            created: String::new(),
         };
-        self.db.execute("INSERT INTO operations(id,json,phase) VALUES(?1,?2,'Prepared')", params![id, serde_json::to_string(&entry)?])?;
+        self.db.execute(
+            "INSERT INTO operations(id,json,phase) VALUES(?1,?2,'Prepared')",
+            params![id, serde_json::to_string(&entry)?],
+        )?;
         let outcome = (|| -> Result<()> {
             disk::ensure_parent(&destination, destination_roots)?;
             input.copy_to(&entry.stage)?;
-            ensure!(disk::digest(&entry.stage)? == hash, "Staged data verification failed");
-            ensure!(input.stamp()? == operation.stamp && input.digest()? == hash, "Source changed while copying");
+            ensure!(
+                disk::digest(&entry.stage)? == hash,
+                "Staged data verification failed"
+            );
+            ensure!(
+                input.stamp()? == operation.stamp && input.digest()? == hash,
+                "Source changed while copying"
+            );
             self.phase(&id, "Staged")?;
             disk::inside(&destination, destination_roots)?;
             disk::publish(&entry.stage, &destination)?;
             self.phase(&id, "Published")?;
-            if operation.action != Action::Copy { input.delete()?; }
+            if operation.action != Action::Copy {
+                input.delete()?;
+            }
             self.remember(&source, &operation.stamp)?;
             self.remember(&destination, &disk::stamp(&fs::metadata(&destination)?)?)?;
             self.phase(&id, "Done")?;
             Ok(())
         })();
-        if let Err(ref e) = outcome { self.error(&id, e)?; }
+        if let Err(ref e) = outcome {
+            self.error(&id, e)?;
+        }
         outcome
     }
 
@@ -141,20 +198,41 @@ impl Journal {
         disk::inside(&entry.stage, &entry.destination_roots)?;
         if op.destination.try_exists()? {
             let mut output = disk::LockedFile::open(&op.destination, true)?;
-            ensure!(output.digest()? == entry.sha256, "Destination changed; preserving it: {}", op.destination.display());
+            ensure!(
+                output.digest()? == entry.sha256,
+                "Destination changed; preserving it: {}",
+                op.destination.display()
+            );
             if op.action != Action::Copy {
                 if op.source.try_exists()? {
-                    ensure!(disk::digest(&op.source)? == entry.sha256, "Restore path is occupied by different content");
+                    ensure!(
+                        disk::digest(&op.source)? == entry.sha256,
+                        "Restore path is occupied by different content"
+                    );
                     // During normal undo an existing path is a conflict, even with identical bytes.
-                    ensure!(entry.phase != "Done", "Restore path is already occupied; move it aside before undo");
+                    ensure!(
+                        entry.phase != "Done",
+                        "Restore path is already occupied; move it aside before undo"
+                    );
                 } else {
                     disk::ensure_parent(&op.source, &entry.source_roots)?;
-                    let restore = op.source.parent().unwrap().join(format!(".fo-{}-undo.tmp", entry.id));
+                    let restore = op
+                        .source
+                        .parent()
+                        .unwrap()
+                        .join(format!(".fo-{}-undo.tmp", entry.id));
                     if restore.try_exists()? {
-                        ensure!(disk::digest(&restore)? == entry.sha256, "Partial restore file requires manual inspection: {}", restore.display());
+                        ensure!(
+                            disk::digest(&restore)? == entry.sha256,
+                            "Partial restore file requires manual inspection: {}",
+                            restore.display()
+                        );
                     } else {
                         output.copy_to(&restore)?;
-                        ensure!(disk::digest(&restore)? == entry.sha256, "Restore verification failed");
+                        ensure!(
+                            disk::digest(&restore)? == entry.sha256,
+                            "Restore verification failed"
+                        );
                     }
                     disk::inside(&op.source, &entry.source_roots)?;
                     disk::publish(&restore, &op.source)?;
@@ -165,11 +243,18 @@ impl Journal {
         } else if op.action != Action::Copy && !op.source.try_exists()? {
             anyhow::bail!("Both paths are missing; manual recovery is required");
         } else if op.action != Action::Copy {
-            ensure!(disk::digest(&op.source)? == entry.sha256, "Original file changed; inspect this recovery record");
+            ensure!(
+                disk::digest(&op.source)? == entry.sha256,
+                "Original file changed; inspect this recovery record"
+            );
         }
         if entry.stage.try_exists()? {
             let mut stage = disk::LockedFile::open(&entry.stage, true)?;
-            ensure!(stage.digest()? == entry.sha256, "Partial staging file preserved for manual inspection: {}", entry.stage.display());
+            ensure!(
+                stage.digest()? == entry.sha256,
+                "Partial staging file preserved for manual inspection: {}",
+                entry.stage.display()
+            );
             stage.delete()?;
         }
         self.remember(&op.source, &op.stamp)?;
@@ -177,11 +262,26 @@ impl Journal {
     }
 
     pub fn undo(&self, id: &str) -> Result<()> {
-        ensure!(self.entries(true)?.is_empty(), "Recover unfinished operations first");
-        let entry = self.entries(false)?.into_iter().find(|e| e.id == id).context("Journal entry not found in recent history")?;
-        ensure!(entry.phase == "Done", "Only completed operations can be undone");
+        ensure!(
+            self.entries(true)?.is_empty(),
+            "Recover unfinished operations first"
+        );
+        let entry = self
+            .entries(false)?
+            .into_iter()
+            .find(|e| e.id == id)
+            .context("Journal entry not found in recent history")?;
+        ensure!(
+            entry.phase == "Done",
+            "Only completed operations can be undone"
+        );
         // Preflight before persisting UndoPending: normal undo must never accept an occupied source.
-        if entry.operation.action != Action::Copy { ensure!(!entry.operation.source.try_exists()?, "Restore path is occupied"); }
+        if entry.operation.action != Action::Copy {
+            ensure!(
+                !entry.operation.source.try_exists()?,
+                "Restore path is occupied"
+            );
+        }
         self.phase(id, "UndoPending")?;
         let result = self.rollback(&entry);
         match &result {
@@ -192,10 +292,15 @@ impl Journal {
     }
 
     pub fn recover(&self) -> Vec<String> {
-        let entries = match self.entries(true) { Ok(entries) => entries, Err(e) => return vec![format!("{e:#}")] };
+        let entries = match self.entries(true) {
+            Ok(entries) => entries,
+            Err(e) => return vec![format!("{e:#}")],
+        };
         let mut results = Vec::new();
         for entry in entries {
-            let outcome = self.rollback(&entry).and_then(|()| self.phase(&entry.id, "Recovered"));
+            let outcome = self
+                .rollback(&entry)
+                .and_then(|()| self.phase(&entry.id, "Recovered"));
             match outcome {
                 Ok(()) => results.push(format!("Recovered {}", entry.operation.source.display())),
                 Err(e) => {
