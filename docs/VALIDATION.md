@@ -21,7 +21,16 @@ Results:
 - `cargo clippy --offline --locked --all-targets -- -D warnings`: passed, no code diagnostics. Cargo reported environment-level incremental-cache hard-link warnings and used copies instead.
 - `cargo test --offline --locked --all-targets -- --test-threads=2`: **22 passed, 0 failed, 0 ignored**. No test invokes the GUI entry point.
 - `git diff --check`: passed.
-- Release packaging/static inspection: result recorded below when the build completes. No EXE will be launched as part of packaging.
+- `scripts/package.ps1` with `CARGO_NET_OFFLINE=true`: passed. Optimized `x86_64-pc-windows-msvc` build completed with two jobs and cached dependencies.
+- `python scripts/inspect_executable.py dist/FileOrganizer-v0.1.0.exe`: passed. AMD64, PE32+, Windows GUI subsystem; import table contains Windows system DLLs and no external MSVC runtime DLL. This checks binary structure, not actual graphics/desktop behavior.
+
+Packaged artifact: `dist/FileOrganizer-v0.1.0.exe`, **11,385,856 bytes**. `dist/SHA256SUMS.txt` matches the independently calculated inspection digest:
+
+```text
+75ad4355ee77c26c8427376b32c062844b2342abc5de252aea6056db3784d9e2  FileOrganizer-v0.1.0.exe
+```
+
+The EXE was never launched. Distribution output is ignored by Git and remains available locally. A read-only Cargo metadata inventory resolved 156 packages for the Windows graph (including development dependencies); all declare licenses. The source uses MIT; dependency/font notices still need the publication audit below.
 
 Coverage includes compound/ordered conditions, invalid Windows device-name templates, in-plan and late collisions, move/copy/rename with restart/undo, changed-source/output refusal, occupied restore paths, approved roots, rejection of network/alternate-stream paths before access, pending publication/staging/undo recovery, conservative handling of partial stages, nested-output exclusion, atomic no-overwrite publication, stability resets, actual native watcher delivery after fixture creation, repeated-event suppression, orderly shutdown with queued notifications, persistent settings and pure update metadata/checksum/PE-architecture validation. Update tests do not make HTTP requests or run the helper.
 

@@ -20,6 +20,8 @@ Initial Windows x64 implementation of rule-based file organization with review, 
 
 ## Known limitations before publication
 
+Local verification: 22 isolated-fixture tests, formatting, Clippy and optimized Windows x64 packaging passed. Static PE/import and SHA-256 inspection passed without launching the executable. See `docs/VALIDATION.md` for the precise artifact digest and test scope.
+
 - GUI interaction, genuine application/settings screenshots and visible/minimized performance measurements remain pending.
 - Live public-release network checks and installation/restart/rollback have not been exercised. The canonical repository/release may not exist yet.
 - Local-drive regular files only. No links/reparse traversal or network folders. File metadata/alternate streams are not preserved.
