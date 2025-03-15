@@ -30,6 +30,8 @@ cargo test --locked --all-targets -- --test-threads=2
 
 Cargo is limited to two jobs and uses this repository's `target` directory. Add `--offline` to Cargo commands when the dependencies are already cached. Packaging builds without launching the application and produces `dist/FileOrganizer-v0.1.0.exe` and `dist/SHA256SUMS.txt`. The executable name has no architecture suffix because the initial distribution targets one architecture, Windows x64. Source builds for other platforms are not a supported release target.
 
+Optional static inspection with Python's standard library (no executable launch): `python scripts/inspect_executable.py dist/FileOrganizer-v0.1.0.exe`. The application itself does not require Python. The UI uses eframe's OpenGL/glow backend; graphics compatibility and desktop responsiveness await manual validation.
+
 For a first manual run, launch the packaged executable yourself. Start with a disposable folder and keep independent backups before using important files.
 
 ## First workflow
