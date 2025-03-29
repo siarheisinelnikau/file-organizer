@@ -1,5 +1,5 @@
 //! Durable intent journal. Every mutation has a persisted recovery record first.
-use crate::{filesystem as disk, model::*};
+use crate::{filesystem as disk, metadata::PreservedMetadata, model::*};
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,9 @@ pub struct Entry {
     pub id: String,
     pub operation: Operation,
     pub sha256: String,
+    /// Older journals did not record metadata; their entries remain recoverable.
+    #[serde(default)]
+    pub metadata: Option<PreservedMetadata>,
     pub source_roots: Vec<String>,
     pub destination_roots: Vec<String>,
     pub stage: PathBuf,
@@ -153,11 +156,14 @@ impl Journal {
             !destination.try_exists()?,
             "Destination appeared after preview; generate a fresh plan"
         );
-        let mut input = disk::LockedFile::open(&source, operation.action != Action::Copy)?;
+        let mut input =
+            disk::LockedFile::open_preserving(&source, operation.action != Action::Copy)?;
         ensure!(
             input.stamp()? == operation.stamp,
             "Source changed after preview; generate a fresh plan"
         );
+        let metadata = input.metadata()?;
+        metadata.validate()?;
         let hash = input.digest()?;
         let id = uuid::Uuid::new_v4().to_string();
         let stage = destination
@@ -172,6 +178,7 @@ impl Journal {
                 ..operation.clone()
             },
             sha256: hash.clone(),
+            metadata: Some(metadata.clone()),
             source_roots: config.source_roots.clone(),
             destination_roots: destination_roots.clone(),
             stage,
@@ -194,12 +201,18 @@ impl Journal {
                 input.stamp()? == operation.stamp && input.digest()? == hash,
                 "Source changed while copying"
             );
+            disk::set_metadata(&entry.stage, &metadata)?;
             self.phase(&id, "Staged")?;
             disk::inside(&destination, destination_roots)?;
             disk::publish(&entry.stage, &destination)?;
             self.phase(&id, "Published")?;
+            // Reapply after rename to defeat Windows creation-time tunneling at the final name.
+            disk::set_metadata(&destination, &metadata)?;
             if operation.action != Action::Copy {
                 input.delete()?;
+            } else {
+                #[cfg(not(windows))]
+                input.set_metadata(&metadata)?;
             }
             self.remember(&source, &operation.stamp)?;
             self.remember(&destination, &disk::stamp(&fs::metadata(&destination)?)?)?;
@@ -219,7 +232,9 @@ impl Journal {
         disk::inside(&op.destination, &entry.destination_roots)?;
         disk::inside(&entry.stage, &entry.destination_roots)?;
         if op.destination.try_exists()? {
-            let mut output = disk::LockedFile::open(&op.destination, true)?;
+            let mut output = disk::LockedFile::open_preserving(&op.destination, true)?;
+            // Legacy records can only retain the metadata still available on the output.
+            let metadata = entry.metadata.clone().unwrap_or(output.metadata()?);
             ensure!(
                 output.digest()? == entry.sha256,
                 "Destination changed; preserving it: {}",
@@ -227,8 +242,9 @@ impl Journal {
             );
             if op.action != Action::Copy {
                 if op.source.try_exists()? {
+                    let mut original = disk::LockedFile::open_preserving(&op.source, false)?;
                     ensure!(
-                        disk::digest(&op.source)? == entry.sha256,
+                        original.digest()? == entry.sha256,
                         "Restore path is occupied by different content"
                     );
                     // During normal undo an existing path is a conflict, even with identical bytes.
@@ -236,6 +252,9 @@ impl Journal {
                         entry.phase != "Done",
                         "Restore path is already occupied; move it aside before undo"
                     );
+                    if let Some(metadata) = &entry.metadata {
+                        original.set_metadata(metadata)?;
+                    }
                 } else {
                     disk::ensure_parent(&op.source, &entry.source_roots)?;
                     let restore = op
@@ -256,8 +275,10 @@ impl Journal {
                             "Restore verification failed"
                         );
                     }
+                    disk::set_metadata(&restore, &metadata)?;
                     disk::inside(&op.source, &entry.source_roots)?;
                     disk::publish(&restore, &op.source)?;
+                    disk::set_metadata(&op.source, &metadata)?;
                 }
                 self.remember(&op.source, &disk::stamp(&fs::metadata(&op.source)?)?)?;
             }
@@ -265,13 +286,17 @@ impl Journal {
         } else if op.action != Action::Copy && !op.source.try_exists()? {
             anyhow::bail!("Both paths are missing; manual recovery is required");
         } else if op.action != Action::Copy {
+            let mut original = disk::LockedFile::open_preserving(&op.source, false)?;
             ensure!(
-                disk::digest(&op.source)? == entry.sha256,
+                original.digest()? == entry.sha256,
                 "Original file changed; inspect this recovery record"
             );
+            if let Some(metadata) = &entry.metadata {
+                original.set_metadata(metadata)?;
+            }
         }
         if entry.stage.try_exists()? {
-            let mut stage = disk::LockedFile::open(&entry.stage, true)?;
+            let mut stage = disk::LockedFile::open_preserving(&entry.stage, true)?;
             ensure!(
                 stage.digest()? == entry.sha256,
                 "Partial staging file preserved for manual inspection: {}",

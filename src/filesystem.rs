@@ -1,4 +1,5 @@
 //! Filesystem boundary. No traversal through symbolic links or Windows reparse points.
+use crate::metadata::{PreservedMetadata, freeze_access_time};
 use crate::model::{Config, FileFact, Stamp, path_key};
 use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha256};
@@ -278,6 +279,14 @@ pub struct LockedFile {
 
 impl LockedFile {
     pub fn open(path: &Path, deletable: bool) -> Result<Self> {
+        Self::open_impl(path, deletable, false)
+    }
+
+    pub fn open_preserving(path: &Path, deletable: bool) -> Result<Self> {
+        Self::open_impl(path, deletable, true)
+    }
+
+    fn open_impl(path: &Path, deletable: bool, preserve_access: bool) -> Result<Self> {
         check_path(path)?;
         let mut options = OpenOptions::new();
         options.read(true);
@@ -285,9 +294,20 @@ impl LockedFile {
         {
             use std::os::windows::fs::OpenOptionsExt;
             options.share_mode(1).custom_flags(0x0020_0000);
-            if deletable {
-                options.access_mode(0x8000_0000 | 0x0001_0000);
-            }
+            use windows_sys::Win32::Storage::FileSystem::{DELETE, FILE_WRITE_ATTRIBUTES};
+            options.access_mode(
+                0x8000_0000
+                    | if deletable {
+                        DELETE | FILE_WRITE_ATTRIBUTES
+                    } else {
+                        0
+                    }
+                    | if preserve_access {
+                        FILE_WRITE_ATTRIBUTES
+                    } else {
+                        0
+                    },
+            );
         }
         #[cfg(not(windows))]
         let _ = deletable;
@@ -302,6 +322,9 @@ impl LockedFile {
             meta.is_file() && !is_link(&meta),
             "Only regular, non-reparse files are supported"
         );
+        if preserve_access {
+            freeze_access_time(&file)?;
+        }
         Ok(Self {
             file,
             path: path.to_owned(),
@@ -310,6 +333,14 @@ impl LockedFile {
 
     pub fn stamp(&self) -> Result<Stamp> {
         stamp(&self.file.metadata()?)
+    }
+
+    pub fn metadata(&self) -> Result<PreservedMetadata> {
+        PreservedMetadata::capture(&self.file.metadata()?)
+    }
+
+    pub fn set_metadata(&self, metadata: &PreservedMetadata) -> Result<()> {
+        metadata.apply(&self.file)
     }
 
     pub fn digest(&mut self) -> Result<String> {
@@ -340,8 +371,18 @@ impl LockedFile {
         {
             use std::os::windows::io::AsRawHandle;
             use windows_sys::Win32::Storage::FileSystem::{
-                FILE_DISPOSITION_INFO, FileDispositionInfo, SetFileInformationByHandle,
+                FILE_ATTRIBUTE_READONLY, FILE_DISPOSITION_INFO, FileDispositionInfo,
+                SetFileInformationByHandle,
             };
+            let original = self.metadata()?;
+            if original.attributes & FILE_ATTRIBUTE_READONLY != 0 {
+                let mut writable = original.clone();
+                writable.attributes &= !FILE_ATTRIBUTE_READONLY;
+                if writable.attributes == 0 {
+                    writable.attributes = 0x80;
+                }
+                self.set_metadata(&writable)?;
+            }
             let info = FILE_DISPOSITION_INFO { DeleteFile: true };
             // The handle owns DELETE access and prevents concurrent writers/path replacement.
             let ok = unsafe {
@@ -352,12 +393,14 @@ impl LockedFile {
                     std::mem::size_of_val(&info) as u32,
                 )
             };
-            ensure!(
-                ok != 0,
-                "Delete {}: {}",
-                self.path.display(),
-                std::io::Error::last_os_error()
-            );
+            if ok == 0 {
+                let error = std::io::Error::last_os_error();
+                // A failed delete must leave a read-only file with its original metadata.
+                self.set_metadata(&original).with_context(|| {
+                    format!("Delete failed: {error}; restoring metadata also failed")
+                })?;
+                bail!("Delete {}: {error}", self.path.display());
+            }
             Ok(())
         }
         #[cfg(not(windows))]
@@ -371,6 +414,10 @@ impl LockedFile {
 
 pub fn digest(path: &Path) -> Result<String> {
     LockedFile::open(path, false)?.digest()
+}
+
+pub fn set_metadata(path: &Path, metadata: &PreservedMetadata) -> Result<()> {
+    LockedFile::open_preserving(path, false)?.set_metadata(metadata)
 }
 
 /// Publish within the destination directory without replacing an existing file.

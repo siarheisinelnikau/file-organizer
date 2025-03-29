@@ -76,6 +76,7 @@ impl Fixture {
         let entry = Entry {
             id: "crash-fixture".into(),
             sha256: format!("{:x}", sha2::Sha256::digest(b"original fixture bytes")),
+            metadata: None,
             source_roots: self.config.source_roots.clone(),
             destination_roots: self.config.destination_roots.clone(),
             stage: self.output.join(".fo-crash-fixture.tmp"),
@@ -635,4 +636,310 @@ fn open_windows_writer_prevents_organization() {
     assert!(!op.destination.exists());
     drop(writer);
     journal.execute(&op, &f.config).unwrap();
+}
+
+#[cfg(windows)]
+fn set_fixture_metadata(path: &Path, base_seconds: u64, attributes: u32) {
+    use std::{
+        os::windows::{ffi::OsStrExt, fs::FileTimesExt},
+        time::UNIX_EPOCH,
+    };
+    use windows_sys::Win32::Storage::FileSystem::SetFileAttributesW;
+    let wide: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    // Independent setup via SetFileAttributesW and Rust FileTimes, rather than the production setter.
+    assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), 0x80) }, 0);
+    let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+    file.set_times(
+        fs::FileTimes::new()
+            .set_created(UNIX_EPOCH + Duration::from_secs(base_seconds))
+            .set_accessed(UNIX_EPOCH + Duration::from_secs(base_seconds + 60))
+            .set_modified(UNIX_EPOCH + Duration::from_secs(base_seconds + 120)),
+    )
+    .unwrap();
+    drop(file);
+    assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), attributes) }, 0);
+}
+
+#[cfg(windows)]
+fn fixture_metadata(path: &Path) -> (u64, u64, u64, u32) {
+    use std::os::windows::fs::MetadataExt;
+    let metadata = fs::metadata(path).unwrap();
+    (
+        metadata.creation_time(),
+        metadata.last_access_time(),
+        metadata.last_write_time(),
+        metadata.file_attributes(),
+    )
+}
+
+#[cfg(windows)]
+fn clear_fixture_readonly(path: &Path) {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_READONLY, SetFileAttributesW,
+    };
+    let flags = fixture_metadata(path).3 & !FILE_ATTRIBUTE_READONLY;
+    let wide: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    assert_ne!(
+        unsafe {
+            SetFileAttributesW(
+                wide.as_ptr(),
+                if flags == 0 {
+                    FILE_ATTRIBUTE_NORMAL
+                } else {
+                    flags
+                },
+            )
+        },
+        0
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn timestamps_and_attributes_round_trip_through_copy_move_rename_and_undo() {
+    use windows_sys::Win32::Storage::FileSystem::*;
+    for action in [Action::Copy, Action::Move, Action::Rename] {
+        for flags in [
+            FILE_ATTRIBUTE_NORMAL,
+            FILE_ATTRIBUTE_READONLY,
+            FILE_ATTRIBUTE_HIDDEN
+                | FILE_ATTRIBUTE_SYSTEM
+                | FILE_ATTRIBUTE_TEMPORARY
+                | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED,
+            FILE_ATTRIBUTE_READONLY
+                | FILE_ATTRIBUTE_HIDDEN
+                | FILE_ATTRIBUTE_SYSTEM
+                | FILE_ATTRIBUTE_ARCHIVE
+                | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED,
+        ] {
+            let f = Fixture::new();
+            let mut op = f.operation(action);
+            if action == Action::Rename {
+                op.destination = f.source.join("renamed.txt");
+            }
+            set_fixture_metadata(&op.source, 1_600_000_000, flags);
+            let original = fixture_metadata(&op.source);
+            op.stamp = disk::stamp(&fs::metadata(&op.source).unwrap()).unwrap();
+            let journal = Journal::open(&f.database).unwrap();
+            journal.execute(&op, &f.config).unwrap();
+            assert_eq!(
+                fixture_metadata(&op.destination),
+                original,
+                "{action:?}, attributes={flags:#x}"
+            );
+            if action == Action::Copy {
+                assert_eq!(fixture_metadata(&op.source), original);
+            }
+            let entry = journal.entries(false).unwrap().remove(0);
+            assert!(entry.metadata.is_some());
+            let id = entry.id;
+            drop(journal);
+            // Undo must use the durable original snapshot, even if the output's metadata was edited.
+            set_fixture_metadata(
+                &op.destination,
+                1_700_000_000,
+                FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_HIDDEN,
+            );
+            let reopened = Journal::open(&f.database).unwrap();
+            reopened.undo(&id).unwrap();
+            assert_eq!(
+                fixture_metadata(&op.source),
+                original,
+                "Undo {action:?}, attributes={flags:#x}"
+            );
+            assert!(!op.destination.exists());
+            assert_eq!(fs::read(&op.source).unwrap(), b"original fixture bytes");
+            clear_fixture_readonly(&op.source);
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn recovery_reapplies_journaled_metadata_to_missing_and_existing_originals() {
+    use windows_sys::Win32::Storage::FileSystem::*;
+    for original_exists in [false, true] {
+        let f = Fixture::new();
+        let mut op = f.operation(Action::Move);
+        set_fixture_metadata(
+            &op.source,
+            1_600_000_000,
+            FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_HIDDEN,
+        );
+        let original = fixture_metadata(&op.source);
+        op.stamp = disk::stamp(&fs::metadata(&op.source).unwrap()).unwrap();
+        let journal = Journal::open(&f.database).unwrap();
+        journal.execute(&op, &f.config).unwrap();
+        if original_exists {
+            fs::write(&op.source, b"original fixture bytes").unwrap();
+            set_fixture_metadata(&op.source, 1_700_000_000, FILE_ATTRIBUTE_ARCHIVE);
+        }
+        let connection = rusqlite::Connection::open(&f.database).unwrap();
+        connection
+            .execute("UPDATE operations SET phase='Published'", [])
+            .unwrap();
+        let messages = journal.recover();
+        assert!(messages[0].starts_with("Recovered"), "{messages:?}");
+        assert_eq!(fixture_metadata(&op.source), original);
+        assert!(!op.destination.exists());
+        clear_fixture_readonly(&op.source);
+    }
+}
+
+#[test]
+fn legacy_journal_without_metadata_still_supports_undo() {
+    let f = Fixture::new();
+    let op = f.operation(Action::Move);
+    let journal = Journal::open(&f.database).unwrap();
+    journal.execute(&op, &f.config).unwrap();
+    let entry = journal.entries(false).unwrap().remove(0);
+    let mut json = serde_json::to_value(&entry).unwrap();
+    json.as_object_mut().unwrap().remove("metadata");
+    let connection = rusqlite::Connection::open(&f.database).unwrap();
+    connection
+        .execute(
+            "UPDATE operations SET json=?1 WHERE id=?2",
+            rusqlite::params![json.to_string(), entry.id],
+        )
+        .unwrap();
+    drop(journal);
+    let reopened = Journal::open(&f.database).unwrap();
+    assert!(reopened.entries(false).unwrap()[0].metadata.is_none());
+    reopened.undo(&entry.id).unwrap();
+    assert_eq!(fs::read(&op.source).unwrap(), b"original fixture bytes");
+}
+
+#[cfg(windows)]
+#[test]
+fn copy_undo_leaves_later_source_metadata_edits_intact() {
+    use windows_sys::Win32::Storage::FileSystem::*;
+    let f = Fixture::new();
+    let op = f.operation(Action::Copy);
+    let journal = Journal::open(&f.database).unwrap();
+    journal.execute(&op, &f.config).unwrap();
+    set_fixture_metadata(
+        &op.source,
+        1_700_000_000,
+        FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED,
+    );
+    let edited = fixture_metadata(&op.source);
+    let entry = journal.entries(false).unwrap().remove(0);
+    journal.undo(&entry.id).unwrap();
+    assert_eq!(fixture_metadata(&op.source), edited);
+    assert!(!op.destination.exists());
+    clear_fixture_readonly(&op.source);
+}
+
+#[cfg(windows)]
+#[test]
+fn read_only_staging_is_removed_during_recovery() {
+    use windows_sys::Win32::Storage::FileSystem::*;
+    let f = Fixture::new();
+    let mut op = f.operation(Action::Move);
+    set_fixture_metadata(
+        &op.source,
+        1_600_000_000,
+        FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_HIDDEN,
+    );
+    let original = fixture_metadata(&op.source);
+    op.stamp = disk::stamp(&fs::metadata(&op.source).unwrap()).unwrap();
+    let journal = Journal::open(&f.database).unwrap();
+    let mut entry = f.pending(op.clone(), "Staged", Some(b"original fixture bytes"));
+    entry.metadata = Some(
+        file_organizer::metadata::PreservedMetadata::capture(&fs::metadata(&op.source).unwrap())
+            .unwrap(),
+    );
+    set_fixture_metadata(
+        &entry.stage,
+        1_600_000_000,
+        FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_HIDDEN,
+    );
+    let connection = rusqlite::Connection::open(&f.database).unwrap();
+    connection
+        .execute(
+            "UPDATE operations SET json=?1",
+            [serde_json::to_string(&entry).unwrap()],
+        )
+        .unwrap();
+    let messages = journal.recover();
+    assert!(messages[0].starts_with("Recovered"), "{messages:?}");
+    assert!(!entry.stage.exists());
+    assert_eq!(fixture_metadata(&op.source), original);
+    clear_fixture_readonly(&op.source);
+}
+
+#[cfg(windows)]
+#[test]
+fn rejected_undo_keeps_edited_output_metadata_and_readonly_flag() {
+    use windows_sys::Win32::Storage::FileSystem::*;
+    let f = Fixture::new();
+    let op = f.operation(Action::Move);
+    let journal = Journal::open(&f.database).unwrap();
+    journal.execute(&op, &f.config).unwrap();
+    fs::write(&op.destination, b"edited fixture contents").unwrap();
+    set_fixture_metadata(
+        &op.destination,
+        1_700_000_000,
+        FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_HIDDEN,
+    );
+    let edited = fixture_metadata(&op.destination);
+    let entry = journal.entries(false).unwrap().remove(0);
+    assert!(journal.undo(&entry.id).is_err());
+    assert_eq!(fixture_metadata(&op.destination), edited);
+    assert!(!op.source.exists());
+    assert_eq!(
+        fs::read(&op.destination).unwrap(),
+        b"edited fixture contents"
+    );
+    clear_fixture_readonly(&op.destination);
+}
+
+#[cfg(windows)]
+#[test]
+fn metadata_restore_failure_preserves_the_only_complete_copy() {
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_COMPRESSED;
+    let f = Fixture::new();
+    let op = f.operation(Action::Move);
+    let journal = Journal::open(&f.database).unwrap();
+    journal.execute(&op, &f.config).unwrap();
+    let mut entry = journal.entries(false).unwrap().remove(0);
+    // Inject an unrestorable snapshot into this fixture journal, without changing any volume setting.
+    entry.metadata.as_mut().unwrap().attributes |= FILE_ATTRIBUTE_COMPRESSED;
+    let connection = rusqlite::Connection::open(&f.database).unwrap();
+    connection
+        .execute(
+            "UPDATE operations SET json=?1 WHERE id=?2",
+            rusqlite::params![serde_json::to_string(&entry).unwrap(), entry.id],
+        )
+        .unwrap();
+    let before = fixture_metadata(&op.destination);
+    assert!(journal.undo(&entry.id).is_err());
+    assert!(!op.source.exists());
+    assert_eq!(fixture_metadata(&op.destination), before);
+    assert_eq!(
+        fs::read(&op.destination).unwrap(),
+        b"original fixture bytes"
+    );
+    assert_eq!(journal.entries(true).unwrap().len(), 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn reused_destination_name_does_not_replace_the_original_creation_time() {
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE;
+    let f = Fixture::new();
+    let mut op = f.operation(Action::Move);
+    set_fixture_metadata(&op.source, 1_600_000_000, FILE_ATTRIBUTE_ARCHIVE);
+    let original = fixture_metadata(&op.source);
+    op.stamp = disk::stamp(&fs::metadata(&op.source).unwrap()).unwrap();
+    fs::write(&op.destination, b"previous occupant").unwrap();
+    set_fixture_metadata(&op.destination, 1_500_000_000, FILE_ATTRIBUTE_ARCHIVE);
+    fs::remove_file(&op.destination).unwrap();
+    let journal = Journal::open(&f.database).unwrap();
+    journal.execute(&op, &f.config).unwrap();
+    assert_eq!(fixture_metadata(&op.destination), original);
+    let entry = journal.entries(false).unwrap().remove(0);
+    journal.undo(&entry.id).unwrap();
+    assert_eq!(fixture_metadata(&op.source), original);
 }
