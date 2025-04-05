@@ -14,7 +14,7 @@ pub enum Conflict {
     KeepBoth,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rule {
     pub id: String,
     pub name: String,
@@ -68,7 +68,7 @@ impl Rule {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub source_roots: Vec<String>,
