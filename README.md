@@ -2,7 +2,7 @@
 
 A Windows desktop organizer that turns folder rules into a reviewable plan, then records every applied action for recovery and undo.
 
-**Status:** first local implementation, version 0.1.0. Windows x64 compilation and fixture tests are the validation target. Interactive desktop validation and real application/settings screenshots are pending because this development session explicitly forbids launching the GUI. No screenshot placeholders or fabricated images are included. The planned [public repository](https://github.com/siarheisinelnikau/file-organizer) and releases have not been published by this session.
+**Status:** local version 0.1.0, with isolated-fixture tests and real application-generated client-area screenshots. The screens below are rendered by the executable's CPU backend using demonstration data, without opening a window or accessing user folders. Native input, window lifecycle and idle/minimized load measurements remain pending. The planned [public repository](https://github.com/siarheisinelnikau/file-organizer) and releases have not been published by this session.
 
 ## What it does
 
@@ -18,6 +18,31 @@ A Windows desktop organizer that turns folder rules into a reviewable plan, then
 
 FileOrganizer is an independent MIT-licensed implementation. [File Juggler](https://www.filejuggler.com/) is a reference for the general user problem; no competitor code, assets or interface have been copied. There is no affiliation.
 
+## Application screens
+
+Real CPU-rendered client areas at 1160 × 820, 100% scale, with demonstration paths and files. These images verify the app's layout; they do not show OS chrome or certify native input/performance.
+
+![Review proposed file changes](docs/screenshots/review.png)
+
+![Folder settings with an explicit Save changes action](docs/screenshots/settings.png)
+
+<details>
+<summary>Rule editor, updates, automation, history, onboarding and recovery</summary>
+
+![Ordered rules and the visual editor](docs/screenshots/rules.png)
+
+![Updates and startup-check preference](docs/screenshots/updates.png)
+
+![Explicit automatic-organization opt-in](docs/screenshots/automation.png)
+
+![Activity and undo](docs/screenshots/activity.png)
+
+![First-run guidance](docs/screenshots/welcome.png)
+
+![Unfinished-operation recovery state](docs/screenshots/recovery.png)
+
+</details>
+
 ## Build and package
 
 Use Rust 1.95 or newer with the Windows MSVC toolchain and existing Visual C++ build tools. No service, driver, browser runtime, AI model, account or API key is required. Dependencies are locked in `Cargo.lock`; SQLite and TLS support are bundled into the executable. The Windows x64 target uses the static CRT.
@@ -31,20 +56,20 @@ cargo test --locked --all-targets -- --test-threads=2
 
 Cargo is limited to two jobs and uses this repository's `target` directory. Add `--offline` to Cargo commands when the dependencies are already cached. Packaging builds without launching the application and produces `dist/FileOrganizer-v0.1.0.exe` and `dist/SHA256SUMS.txt`. The executable name has no architecture suffix because the initial distribution targets one architecture, Windows x64. Source builds for other platforms are not a supported release target.
 
-Optional static inspection with Python's standard library (no executable launch): `python scripts/inspect_executable.py dist/FileOrganizer-v0.1.0.exe`. The application itself does not require Python. The UI uses eframe's OpenGL/glow backend; graphics compatibility and desktop responsiveness await manual validation.
+Optional static inspection with Python's standard library (no executable launch): `python scripts/inspect_executable.py dist/FileOrganizer-v0.1.0.exe`. The application itself does not require Python. The UI uses CPU rasterization and a Win32 GDI presentation path. Native presentation and desktop responsiveness await manual validation.
 
 For a first manual run, launch the packaged executable yourself. Start with a disposable folder and keep independent backups before using important files.
 
 ## First workflow
 
-1. Open **Folders & settings**. Add existing absolute source folders and existing output roots. No real folders are preselected. Local drive paths are supported; symbolic links, junctions/reparse points and network paths are refused.
+1. Open **Settings → Folders**. Add existing absolute source folders and existing output roots. No real folders are preselected. Local drive paths are supported; symbolic links, junctions/reparse points and network paths are refused.
 2. Open **Rules**, add a template, and enter a destination inside an approved output root. Missing subfolders can be created during application. For Rename, the destination stays in the original source folder.
 3. Adjust conditions and the filename template. Conditions are ANDed. Extensions are comma separated, without a leading dot. `*` matches any characters, including separators in a subfolder condition; `?` matches one character. An empty subfolder pattern matches only the source root. Size is in bytes, and age uses modification time in minutes. Types are detected by extension, not content or EXIF.
-4. Choose **Preview now**. The first observation waits for the settling interval (default 3 seconds); a background second observation refreshes the plan. Preview does not change source/output files. Saving settings and scanning can write only application metadata.
-5. Select actions, then choose **Apply selected actions**. Each file is revalidated before execution. A late collision or changed source stops the batch and preserves the conflicting file. Generate a fresh preview to reconsider conflict names.
-6. Use **Activity → Undo** to restore a completed move/rename or remove an unchanged copy. Undo does not overwrite an occupied original path. If an unfinished operation exists, **Recover unfinished operations** attempts a conservative rollback first.
+4. Choose **Preview changes**. The first observation waits for the settling interval (default 3 seconds); a background second observation refreshes the plan. Preview does not change source/output files. Saving settings and scanning can write only application metadata.
+5. Select actions, then choose **Organize selected**. Each file is revalidated before execution. A late collision or changed source stops the batch and preserves the conflicting file. Generate a fresh preview to reconsider conflict names.
+6. Use **Activity → Undo** to restore a completed move/rename or remove an unchanged copy. Undo does not overwrite an occupied original path. If an unfinished operation exists, **Recover unfinished changes** attempts a conservative rollback first.
 
-**Watch for review** keeps the plan updated without applying it. Pause monitoring to freeze the plan before selecting actions. For unattended filing while the application is open, review the rules, tick the explicit automatic-organization acknowledgement in settings, then choose **Start automatic organization**. Edits pause monitoring and invalidate the displayed plan. Settings are saved explicitly or during orderly close. Closing waits for the current file to reach a journaled boundary and cancels remaining batch items; it does not leave a background service running.
+**Watch for changes** keeps the plan updated without applying it. Use **Pause monitoring** in the sidebar to freeze the plan before selecting actions. For unattended filing while the application is open, review the rules, tick the explicit automatic-organization acknowledgement under **Settings → Automation**, then choose **Start automatic organization**. Edits pause monitoring and invalidate the displayed plan. Changes show a **Save changes** button. Previewing also saves the current configuration. Settings are saved during orderly close. Closing waits for the current file to reach a journaled boundary and cancels remaining batch items; it does not leave a background service running.
 
 ## Safety and scope
 
@@ -68,9 +93,9 @@ Journal records created before metadata preservation remain readable. They conta
 
 ## Updates and future distribution
 
-**Folders & settings → Updates** shows the installed version, **Check for updates**, and the persistent **Check for updates on startup** toggle. Startup checks run in a separate worker and show no no-update or transient-error dialog. Disabling the toggle and saving prevents startup requests on the next launch; manual checking remains available. A missing/unpublished repository, offline connection or rate limit is reported as an unavailable check, not as “up to date.”
+**Settings → Updates & about** shows the installed version, **Check for updates**, and the persistent **Check for updates on startup** toggle. Startup checks run in a separate worker and show no no-update or transient-error dialog. Disabling the toggle and saving prevents startup requests on the next launch; manual checking remains available. A missing/unpublished repository, offline connection or rate limit is reported as an unavailable check, not as “up to date.”
 
-The stable updater compares semantic versions, rejects drafts/prereleases and selects the canonical `FileOrganizer-vVERSION.exe` asset. **Download and install (restarts app)** requires explicit user action and a paused organizer. It displays progress, checks published size, SHA-256 (GitHub asset digest or `SHA256SUMS.txt`) and Windows x64 PE headers, finishes file work, exits, replaces the executable through a copied headless helper, then restarts. Configuration/journal data remain in LocalAppData. The install directory must be writable without elevation. A failed download leaves the installation unchanged; replacement has a rollback backup. Helper failures are saved in `update-error.txt` for the next launch. Interrupted helpers may leave staging/backup files for inspection.
+The stable updater compares semantic versions, rejects drafts/prereleases and selects the canonical `FileOrganizer-vVERSION.exe` asset. **Download and install** requires explicit user action and a paused organizer. It displays progress, checks published size, SHA-256 (GitHub asset digest or `SHA256SUMS.txt`) and Windows x64 PE headers, finishes file work, exits, replaces the executable through a copied headless helper, then restarts. Configuration/journal data remain in LocalAppData. The install directory must be writable without elevation. A failed download leaves the installation unchanged; replacement has a rollback backup. Helper failures are saved in `update-error.txt` for the next launch. Interrupted helpers may leave staging/backup files for inspection.
 
 No release/network download or updater installation has been exercised in this development session. Before publishing, complete the [manual validation checklist](docs/VALIDATION.md) and use the [release notes draft](docs/RELEASE_NOTES_v0.1.0.md). Builds are not code-signed. SHA-256 verifies integrity against release metadata; it is not a publisher signature.
 
@@ -79,3 +104,9 @@ No release/network download or updater installation has been exercised in this d
 The pure planner is separated from filesystem inspection, journal execution, watcher scheduling and GUI code. One bounded background worker serializes filesystem work; a separate worker serializes update requests. The GUI wakes for input or results and does not scan folders or hash files in paint callbacks. See [architecture](docs/ARCHITECTURE.md) and [validation record](docs/VALIDATION.md).
 
 License: [MIT](LICENSE).
+
+## Static visual review without computer use
+
+The developer-only mode `FileOrganizer-v0.1.0.exe --capture ABSOLUTE_OUTPUT_DIRECTORY [WIDTH HEIGHT [SCALE]]` renders eight actual screens through the same UI and CPU renderer as normal operation, writes PNGs plus `capture.json`, and exits. Use a fresh directory; existing files are never overwritten. The mode is parsed before normal startup: no window, file worker, update worker, database, filesystem watch or network request is started. Examples: default 1160 × 820; `960 680` for the minimum layout; `1200 850 1.25` for a 125% capture with a 960 × 680 logical client area. It has a 20-second internal batch deadline and three frames per screen; run it with a 30-second external process timeout.
+
+The normal desktop host uses `Wait`/`WaitUntil`, discards stale repaint requests, and keeps hidden/minimized data changes dirty for restoration without rendering them. An optional `--render-log ABSOLUTE_JSON_PATH` writes frame/wakeup counts and layout/raster/present totals after an ordinary run exits. This diagnostic is outside consumer settings. It is preparation for native measurement, not proof of settled idle behavior. See [design and rendering review](docs/DESIGN_REVIEW.md).

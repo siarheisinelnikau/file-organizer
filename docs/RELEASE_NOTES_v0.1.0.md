@@ -13,6 +13,13 @@ Initial Windows x64 implementation of rule-based file organization with review, 
 - Persistent settings and single-data-directory instance locking.
 - Future public-release update checks with a startup opt-out and user-initiated verified portable installation/restart.
 
+## Improved
+
+- Review-first navigation, guided setup, a focused rule editor, grouped folder/automation/update settings and clear save/apply actions.
+- Shared light visual system, readable type sizes, consistent spacing and path truncation for narrow layouts.
+- CPU rasterization with reactive Win32 GDI presentation replaces the OpenGL host. Hidden frames are gated at source; native idle/restore measurements remain pending.
+- Finite isolated `--capture` mode for real application-generated PNGs without computer use, user data, file watches or update requests.
+
 ## Distribution
 
 - Planned standalone executable: `FileOrganizer-v0.1.0.exe`, Windows x64 MSVC. Keep `SHA256SUMS.txt` beside the release asset.
@@ -21,9 +28,9 @@ Initial Windows x64 implementation of rule-based file organization with review, 
 
 ## Known limitations before publication
 
-Local verification: 30 isolated-fixture tests, formatting, Clippy and optimized Windows x64 packaging passed. Static PE/import and SHA-256 inspection passed without launching the executable. See `docs/VALIDATION.md` for the precise artifact digest and test scope.
+Local verification: 33 isolated-fixture/rendering tests, formatting, Clippy and optimized Windows x64 packaging passed. Static PE/import and SHA-256 inspection passed without entering normal GUI operation. See `docs/VALIDATION.md` for the precise artifact digest and test scope.
 
-- GUI interaction, genuine application/settings screenshots and visible/minimized performance measurements remain pending.
+- Native GUI interaction and visible/minimized performance measurements remain pending. Real CPU-rendered client-area application/settings screenshots are included.
 - Live public-release network checks and installation/restart/rollback have not been exercised. The canonical repository/release may not exist yet.
 - Local-drive regular files only. No links/reparse traversal or network folders. ACLs, ownership, alternate streams and extended attributes are not preserved; storage/cloud flags requiring special copy mechanisms are rejected. Older journal entries cannot reconstruct original metadata that was never recorded.
 - Large folder scans are bounded. No service, tray/autostart registration, deletion actions, content/EXIF conditions or journal-retention controls.
