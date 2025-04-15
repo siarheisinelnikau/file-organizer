@@ -1,0 +1,74 @@
+{
+  "backend": "egui 0.37 meshes -> explicit 0.33 raster adapter -> egui_software_backend 0.0.2 CPU",
+  "captures": [
+    {
+      "capture_ms": 18,
+      "frames": 3,
+      "height": 820,
+      "scale": 1.0,
+      "scene": "review",
+      "width": 1160
+    },
+    {
+      "capture_ms": 18,
+      "frames": 3,
+      "height": 820,
+      "scale": 1.0,
+      "scene": "rules",
+      "width": 1160
+    },
+    {
+      "capture_ms": 16,
+      "frames": 3,
+      "height": 820,
+      "scale": 1.0,
+      "scene": "settings",
+      "width": 1160
+    },
+    {
+      "capture_ms": 14,
+      "frames": 3,
+      "height": 820,
+      "scale": 1.0,
+      "scene": "updates",
+      "width": 1160
+    },
+    {
+      "capture_ms": 19,
+      "frames": 3,
+      "height": 820,
+      "scale": 1.0,
+      "scene": "activity",
+      "width": 1160
+    },
+    {
+      "capture_ms": 15,
+      "frames": 3,
+      "height": 820,
+      "scale": 1.0,
+      "scene": "welcome",
+      "width": 1160
+    },
+    {
+      "capture_ms": 18,
+      "frames": 3,
+      "height": 820,
+      "scale": 1.0,
+      "scene": "recovery",
+      "width": 1160
+    },
+    {
+      "capture_ms": 21,
+      "frames": 3,
+      "height": 820,
+      "scale": 1.0,
+      "scene": "automation",
+      "width": 1160
+    }
+  ],
+  "frames": 24,
+  "network_enabled": false,
+  "total_ms": 151,
+  "window_created": false,
+  "workers_started": false
+}

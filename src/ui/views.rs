@@ -331,14 +331,22 @@ impl Organizer {
                                                 .file_name()
                                                 .unwrap_or_default()
                                                 .to_string_lossy();
-                                            ui.add_sized(
-                                                [(ui.available_width() - 160.0).max(120.0), 34.0],
-                                                egui::Label::new(
-                                                    RichText::new(name.as_ref()).strong(),
-                                                )
-                                                .truncate(),
-                                            )
-                                            .on_hover_text(name.as_ref());
+                                            ui.allocate_ui_with_layout(
+                                                egui::vec2(
+                                                    (ui.available_width() - 160.0).max(120.0),
+                                                    34.0,
+                                                ),
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| {
+                                                    ui.add(
+                                                        egui::Label::new(
+                                                            RichText::new(name.as_ref()).strong(),
+                                                        )
+                                                        .truncate(),
+                                                    )
+                                                    .on_hover_text(name.as_ref());
+                                                },
+                                            );
                                             ui.label(
                                                 RichText::new(format!("{:?}", op.action))
                                                     .color(ACCENT),

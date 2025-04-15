@@ -9,9 +9,15 @@
 - `journal.rs`: SQLite settings, durable operation phases, suppression fingerprints, execution and rollback.
 - `worker.rs`: one serial filesystem owner, bounded command/result channels, native notifications, settling/debouncing and reconciliation deadlines.
 - `updater.rs`: release parsing, integrity checks and the portable helper protocol.
-- `ui.rs`: original egui editor, plan selection, journal history and settings. No directory scans/network requests in frame callbacks.
+- `ui.rs` and `ui/views.rs`: application state, the Review-first interface, rule editor, activity and grouped settings. No directory scans/network requests in frame callbacks.
+- `design.rs`: shared light palette, typography, spacing and primary actions.
+- `renderer.rs`: the CPU raster adapter shared by the desktop host and headless captures.
+- `host.rs`: winit events, native input/clipboard/IME, software GDI presentation, repaint deadlines and shutdown.
+- `ui/capture.rs`: bounded isolated screen fixtures; parsed before workers or user-data startup.
 
-The eframe 0.37.0 source used for this build schedules `Wait`/`WaitUntil` after redraws rather than retaining the older `ControlFlow::Poll` behavior. The application requests repaint only on input/framework needs and worker results. No continuous repaint timer is installed. This is a source-level design check, not a measured claim about desktop latency or idle CPU; actual visible/minimized tests are deferred.
+The former eframe/OpenGL host has been replaced by `egui 0.37 → mesh/texture adapter → egui_software_backend 0.0.2 CPU → softbuffer 0.4.8 Win32 GDI`. The available rasterizer consumes egui 0.33 structures, so the explicit adapter copies only geometry, premultiplied colors, ordered texture updates and clip coordinates. UI construction remains egui 0.37. GPU callbacks are rejected. The adapter has a partial-texture-update regression test. Viewports below 64 pixels or above 16 million pixels are refused; normal UI minimum size is 960 × 680 logical units.
+
+The host uses `Wait`/`WaitUntil`, drops stale repaint requests, and guards frames with dirty/drawable state. Hidden/minimized/occluded windows retain dirty data without layout/raster/present. Worker events still drain and orderly shutdown remains available while hidden. Renderer failures stop further painting before orderly close. Finite offscreen captures execute this same UI and CPU rasterizer without constructing any window. Source inspection and captures do not constitute native idle/hidden/performance verification; the runtime gate remains incomplete pending an authorized native diagnostic run.
 
 When paused, the filesystem worker blocks on a command receiver. While monitoring it sleeps until an event/debounce, settling retry or 60-second reconciliation deadline. Native watcher callbacks use nonblocking bounded enqueue; a full queue coalesces notifications and the reconciliation scan covers missed callbacks. Monitoring is process-lifetime only and starts paused on every launch. A separate serial update worker keeps HTTP and installation preparation off the GUI thread.
 

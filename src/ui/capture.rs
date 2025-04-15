@@ -85,7 +85,7 @@ pub fn capture_screens(args: &[String]) -> Result<()> {
         std::io::Write::flush(&mut writer)?;
         records.push(
             serde_json::json!({ "scene": scene, "width": width, "height": height, "frames": 3, "scale": scale,
-            "layout_and_raster_ms": before.elapsed().as_millis() }),
+            "capture_ms": before.elapsed().as_millis() }),
         );
     }
     let record = serde_json::json!({ "backend": "egui 0.37 meshes -> explicit 0.33 raster adapter -> egui_software_backend 0.0.2 CPU",
