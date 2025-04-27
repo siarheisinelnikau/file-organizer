@@ -14,6 +14,52 @@ pub enum Conflict {
     KeepBoth,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PlanningMode {
+    #[default]
+    Rules,
+    AiHub,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AiSettings {
+    pub base_url: String,
+    pub destination: String,
+    pub goal: String,
+    pub include_text: bool,
+    pub allow_rename: bool,
+    pub allow_http_lan: bool,
+    pub minimum_confidence: u8,
+    pub action: Action,
+    pub conflict: Conflict,
+}
+impl Default for AiSettings {
+    fn default() -> Self {
+        Self {
+            base_url: "http://127.0.0.1:8080/v1".into(),
+            destination: String::new(),
+            goal:
+                "Organize files by subject and purpose using a small, consistent folder hierarchy."
+                    .into(),
+            include_text: false,
+            allow_rename: false,
+            allow_http_lan: false,
+            minimum_confidence: 80,
+            action: Action::Move,
+            conflict: Conflict::KeepBoth,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AiDecision {
+    pub category: Option<String>,
+    pub name: Option<String>,
+    pub confidence: u8,
+    pub reason: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rule {
     pub id: String,
@@ -71,6 +117,8 @@ impl Rule {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub mode: PlanningMode,
+    pub ai: AiSettings,
     pub source_roots: Vec<String>,
     pub destination_roots: Vec<String>,
     pub rules: Vec<Rule>,
@@ -82,6 +130,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            mode: PlanningMode::Rules,
+            ai: AiSettings::default(),
             source_roots: Vec::new(),
             destination_roots: Vec::new(),
             rules: Vec::new(),
@@ -107,6 +157,8 @@ pub struct FileFact {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Operation {
+    #[serde(default)]
+    pub ai: Option<AiDecision>,
     pub rule_id: String,
     pub rule_name: String,
     pub source: PathBuf,

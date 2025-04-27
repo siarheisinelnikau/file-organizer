@@ -700,9 +700,11 @@ dependencies = [
  "softbuffer",
  "tempfile",
  "ureq",
+ "url",
  "uuid",
  "windows-sys 0.61.2",
  "winit",
+ "zeroize",
 ]
 
 [[package]]

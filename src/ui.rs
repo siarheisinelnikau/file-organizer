@@ -1,5 +1,6 @@
 use crate::design::*;
 use egui::{self, RichText};
+mod ai_view;
 mod capture;
 mod views;
 pub use capture::capture_screens;
@@ -44,6 +45,11 @@ pub struct Organizer {
     loaded: bool,
     dirty: bool,
     busy: bool,
+    ai_busy: bool,
+    ai_done: usize,
+    ai_total: usize,
+    ai_status: String,
+    token_input: String,
     watching: bool,
     automatic: bool,
     auto_approved: bool,
@@ -113,6 +119,11 @@ impl Organizer {
             loaded: !live,
             dirty: false,
             busy: false,
+            ai_busy: false,
+            ai_done: 0,
+            ai_total: 0,
+            ai_status: "Connect to your running AI Hub. No model is started automatically.".into(),
+            token_input: String::new(),
             watching: false,
             automatic: false,
             auto_approved: false,
@@ -180,8 +191,23 @@ impl Organizer {
                     self.pending = pending;
                 }
                 Event::Message(message) => self.message(false, message),
-                Event::Error(error) => self.message(true, error),
+                Event::Error(error) => {
+                    if self.ai_status.starts_with("Checking the universal route") {
+                        self.ai_status = error.clone();
+                    }
+                    self.message(true, error);
+                }
                 Event::Busy(busy) => self.busy = busy,
+                Event::AiProgress {
+                    active,
+                    done,
+                    total,
+                } => {
+                    self.ai_busy = active;
+                    self.ai_done = done;
+                    self.ai_total = total;
+                }
+                Event::AiConnection(status) => self.ai_status = status,
                 Event::Watching(watching, automatic) => {
                     self.watching = watching;
                     self.automatic = automatic;
@@ -287,7 +313,7 @@ impl Organizer {
             self.auto_approved = false;
             self.plan = Plan::default();
             self.selected.clear();
-            if self.watching {
+            if self.watching || self.ai_busy {
                 self.send(Command::Pause);
             }
         }

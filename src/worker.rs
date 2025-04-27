@@ -1,5 +1,5 @@
 use crate::{
-    engine, filesystem as disk,
+    ai, credentials, engine, filesystem as disk,
     journal::{Entry, Journal},
     model::*,
 };
@@ -22,6 +22,20 @@ use std::{
 pub enum Command {
     Save(Config),
     Preview(Config),
+    Reclassify(Config),
+    CheckAi(crate::model::AiSettings),
+    SaveAiToken(AiSettings, zeroize::Zeroizing<String>),
+    RemoveAiToken(AiSettings),
+    CancelAi,
+    AiProgress {
+        id: u64,
+        done: usize,
+        total: usize,
+    },
+    AiFinished {
+        id: u64,
+        result: std::result::Result<AiCompletion, String>,
+    },
     Apply {
         generation: u64,
         indices: Vec<usize>,
@@ -37,16 +51,29 @@ pub enum Command {
     Recover,
     Shutdown,
 }
+pub enum AiCompletion {
+    Plan(ai::Report),
+    Connection(String),
+}
 
 pub enum Event {
     Loaded(Config),
-    Plan { generation: u64, plan: Plan },
+    Plan {
+        generation: u64,
+        plan: Plan,
+    },
     History(Vec<Entry>, usize),
     Message(String),
     Error(String),
     Busy(bool),
     Watching(bool, bool),
     Stopped,
+    AiProgress {
+        active: bool,
+        done: usize,
+        total: usize,
+    },
+    AiConnection(String),
 }
 
 pub struct Worker {
@@ -58,6 +85,14 @@ pub struct Worker {
 
 impl Worker {
     pub fn start(directory: PathBuf, repaint: impl Fn() + Send + Sync + 'static) -> Self {
+        Self::start_with_ai(directory, repaint, Arc::new(ai::HubClient))
+    }
+    #[doc(hidden)]
+    pub fn start_with_ai(
+        directory: PathBuf,
+        repaint: impl Fn() + Send + Sync + 'static,
+        client: Arc<dyn ai::CompletionClient>,
+    ) -> Self {
         let (commands, receiver) = mpsc::sync_channel(8);
         let (sender, events) = mpsc::sync_channel(32);
         let cancel = Arc::new(AtomicBool::new(false));
@@ -77,6 +112,7 @@ impl Worker {
                 &emit,
                 &worker_cancel,
                 &worker_shutdown_config,
+                client,
             ) {
                 emit(Event::Error(format!("{e:#}")));
             }
@@ -233,6 +269,7 @@ fn run(
     emit: &impl Fn(Event),
     cancel: &AtomicBool,
     shutdown_config: &Mutex<Option<Config>>,
+    ai_client: Arc<dyn ai::CompletionClient>,
 ) -> Result<()> {
     disk::check_path(&directory)?;
     fs::create_dir_all(&directory)?;
@@ -245,7 +282,7 @@ fn run(
         .open(directory.join("instance.lock-file"))?;
     lock.try_lock_exclusive()
         .context("FileOrganizer is already using this data directory")?;
-    let journal = Journal::open(&directory.join("organizer.db"))?;
+    let mut journal = Journal::open(&directory.join("organizer.db"))?;
     let mut config = journal.config()?;
     emit(Event::Loaded(config.clone()));
     history(&journal, emit)?;
@@ -265,8 +302,12 @@ fn run(
     let mut stability = Stability::new();
     let mut current = Plan::default();
     let mut generation = 0u64;
+    let mut ai_task: Option<(u64, Arc<AtomicBool>)> = None;
+    let ai_running = Arc::new(AtomicBool::new(false));
+    let mut task_sequence = 0;
     loop {
         if cancel.load(Ordering::Relaxed) {
+            cancel_ai(&mut ai_task, emit);
             if let Some(save) = shutdown_config
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Shutdown settings lock failed"))?
@@ -289,6 +330,7 @@ fn run(
             }
         };
         if matches!(next, Some(Command::Shutdown)) {
+            cancel_ai(&mut ai_task, emit);
             if let Some(save) = shutdown_config
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Shutdown settings lock failed"))?
@@ -306,6 +348,7 @@ fn run(
             continue;
         }
         if matches!(next, Some(Command::Pause)) {
+            cancel_ai(&mut ai_task, emit);
             watcher = None;
             automatic = false;
             due = None;
@@ -314,9 +357,11 @@ fn run(
             continue;
         }
         emit(Event::Busy(true));
+        let mut request_plan = false;
         let outcome = (|| -> Result<()> {
             match next {
                 Some(Command::Save(value)) => {
+                    cancel_ai(&mut ai_task, emit);
                     watcher = None;
                     automatic = false;
                     due = None;
@@ -341,6 +386,7 @@ fn run(
                         journal.entries(true)?.is_empty(),
                         "Recover unfinished operations first"
                     );
+                    cancel_ai(&mut ai_task, emit);
                     disk::scan(&value)?;
                     watcher = None;
                     let callback = commands.clone();
@@ -375,26 +421,134 @@ fn run(
                     due = Some(Instant::now());
                     emit(Event::Watching(true, automatic));
                 }
+                Some(Command::Reclassify(value)) => {
+                    cancel_ai(&mut ai_task, emit);
+                    journal.clear_ai_decisions()?;
+                    watcher = None;
+                    automatic = false;
+                    due = None;
+                    emit(Event::Watching(false, false));
+                    journal.save_config(&value)?;
+                    config = value;
+                    request_plan = true;
+                }
                 Some(Command::Preview(value)) => {
+                    cancel_ai(&mut ai_task, emit);
                     watcher = None;
                     automatic = false;
                     emit(Event::Watching(false, false));
                     journal.save_config(&value)?;
                     config = value;
-                    current = make_plan(&config, &journal, &mut stability)?;
-                    generation += 1;
-                    due = (current.waiting > 0).then(|| {
-                        Instant::now() + Duration::from_secs(config.settle_seconds.clamp(2, 60))
+                    request_plan = true;
+                }
+                Some(Command::CancelAi) => {
+                    cancel_ai(&mut ai_task, emit);
+                    watcher = None;
+                    automatic = false;
+                    due = None;
+                    emit(Event::Watching(false, false));
+                    emit(Event::Message("AI analysis cancelled. No AI file actions will be applied. An in-flight hub request may take up to 45 seconds to finish.".into()));
+                }
+                Some(Command::SaveAiToken(settings, token)) => {
+                    credentials::store(&ai::endpoint(&settings)?, &token)?;
+                    emit(Event::AiConnection(
+                        "Token saved in Windows Credential Manager.".into(),
+                    ));
+                }
+                Some(Command::RemoveAiToken(settings)) => {
+                    credentials::remove(&ai::endpoint(&settings)?)?;
+                    emit(Event::AiConnection("Saved token removed. An explicitly configured environment token may still be used.".into()));
+                }
+                Some(Command::CheckAi(settings)) => {
+                    watcher = None;
+                    automatic = false;
+                    due = None;
+                    emit(Event::Watching(false, false));
+                    ensure!(ai_task.is_none(), "Cancel the current AI analysis first");
+                    let cancelled = Arc::new(AtomicBool::new(false));
+                    task_sequence += 1;
+                    let id = task_sequence;
+                    spawn_ai(
+                        id,
+                        None,
+                        Some(settings),
+                        cancelled.clone(),
+                        ai_running.clone(),
+                        commands.clone(),
+                        ai_client.clone(),
+                    )?;
+                    ai_task = Some((id, cancelled));
+                    emit(Event::AiProgress {
+                        active: true,
+                        done: 0,
+                        total: 0,
                     });
-                    emit(Event::Plan {
-                        generation,
-                        plan: current.clone(),
-                    });
+                }
+                Some(Command::AiProgress { id, done, total }) => {
+                    if ai_task.as_ref().is_some_and(|t| t.0 == id) {
+                        emit(Event::AiProgress {
+                            active: true,
+                            done,
+                            total,
+                        });
+                    }
+                }
+                Some(Command::AiFinished { id, result }) => {
+                    if ai_task.as_ref().is_some_and(|t| t.0 == id) {
+                        ai_task = None;
+                        emit(Event::AiProgress {
+                            active: false,
+                            done: 0,
+                            total: 0,
+                        });
+                        match result.map_err(anyhow::Error::msg)? {
+                            AiCompletion::Connection(status) => emit(Event::AiConnection(status)),
+                            AiCompletion::Plan(report) => {
+                                journal.save_ai_decisions(&report.cache)?;
+                                current = report.plan;
+                                generation += 1;
+                                if automatic {
+                                    let approved: Vec<_> = current
+                                        .operations
+                                        .iter()
+                                        .filter(|o| ai::recommended(o, &config.ai))
+                                        .cloned()
+                                        .collect();
+                                    if !approved.is_empty() {
+                                        apply(&journal, &config, approved, emit, cancel)?;
+                                    }
+                                    current
+                                        .operations
+                                        .retain(|o| !ai::recommended(o, &config.ai));
+                                }
+                                emit(Event::Plan {
+                                    generation,
+                                    plan: current.clone(),
+                                });
+                                due = if current.waiting > 0 {
+                                    Some(
+                                        Instant::now()
+                                            + Duration::from_secs(
+                                                config.settle_seconds.clamp(2, 60),
+                                            ),
+                                    )
+                                } else if watcher.is_some() {
+                                    Some(Instant::now() + Duration::from_secs(60))
+                                } else {
+                                    None
+                                };
+                            }
+                        }
+                    }
                 }
                 Some(Command::Apply {
                     generation: requested,
                     indices,
                 }) => {
+                    ensure!(
+                        ai_task.is_none(),
+                        "Wait for AI analysis or cancel it before applying changes"
+                    );
                     ensure!(
                         requested == generation,
                         "Preview changed; review the current plan"
@@ -419,6 +573,7 @@ fn run(
                     });
                 }
                 Some(Command::Undo(id)) => {
+                    cancel_ai(&mut ai_task, emit);
                     watcher = None;
                     automatic = false;
                     due = None;
@@ -429,6 +584,7 @@ fn run(
                     emit(Event::Message("Operation undone. It will not be automatically repeated for the same file version.".into()));
                 }
                 Some(Command::Recover) => {
+                    cancel_ai(&mut ai_task, emit);
                     watcher = None;
                     automatic = false;
                     due = None;
@@ -440,6 +596,56 @@ fn run(
                 }
                 Some(Command::WatchError(error)) => anyhow::bail!("Folder watcher failed: {error}"),
                 None => {
+                    if ai_task.is_none() {
+                        request_plan = true;
+                    } else {
+                        due = None;
+                    }
+                }
+                _ => {}
+            }
+            if request_plan {
+                if config.mode == PlanningMode::AiHub {
+                    let job = prepare_ai(&config, &journal, &mut stability)?;
+                    current = job.base.clone();
+                    generation += 1;
+                    emit(Event::Plan {
+                        generation,
+                        plan: current.clone(),
+                    });
+                    if job.facts.is_empty() {
+                        due = if current.waiting > 0 {
+                            Some(
+                                Instant::now()
+                                    + Duration::from_secs(config.settle_seconds.clamp(2, 60)),
+                            )
+                        } else if watcher.is_some() {
+                            Some(Instant::now() + Duration::from_secs(60))
+                        } else {
+                            None
+                        };
+                    } else {
+                        let cancelled = Arc::new(AtomicBool::new(false));
+                        task_sequence += 1;
+                        let id = task_sequence;
+                        spawn_ai(
+                            id,
+                            Some(job),
+                            None,
+                            cancelled.clone(),
+                            ai_running.clone(),
+                            commands.clone(),
+                            ai_client.clone(),
+                        )?;
+                        ai_task = Some((id, cancelled));
+                        due = None;
+                        emit(Event::AiProgress {
+                            active: true,
+                            done: 0,
+                            total: 0,
+                        });
+                    }
+                } else {
                     current = make_plan(&config, &journal, &mut stability)?;
                     generation += 1;
                     emit(Event::Plan {
@@ -454,10 +660,6 @@ fn run(
                             generation,
                             plan: current.clone(),
                         });
-                        ensure!(
-                            journal.entries(true)?.is_empty(),
-                            "Automatic organization paused after an incomplete action"
-                        );
                     }
                     due = if current.waiting > 0 {
                         Some(
@@ -470,11 +672,11 @@ fn run(
                         None
                     };
                 }
-                _ => {}
             }
             Ok(())
         })();
         if let Err(e) = outcome {
+            cancel_ai(&mut ai_task, emit);
             watcher = None;
             automatic = false;
             due = None;
@@ -484,8 +686,106 @@ fn run(
         }
         emit(Event::Busy(false));
     }
+    cancel_ai(&mut ai_task, emit);
     drop(watcher);
     drop(journal);
     drop(lock);
+    Ok(())
+}
+
+fn cancel_ai(task: &mut Option<(u64, Arc<AtomicBool>)>, emit: &impl Fn(Event)) {
+    if let Some((_, flag)) = task.take() {
+        flag.store(true, Ordering::Relaxed);
+        emit(Event::AiProgress {
+            active: false,
+            done: 0,
+            total: 0,
+        });
+    }
+}
+fn prepare_ai(config: &Config, journal: &Journal, stability: &mut Stability) -> Result<ai::Job> {
+    ai::endpoint(&config.ai)?;
+    ensure!(
+        config.ai.minimum_confidence <= 100 && config.ai.minimum_confidence >= 1,
+        "AI confidence threshold must be between 1 and 100"
+    );
+    let scan = disk::scan(config)?;
+    let scanned = scan.files.len();
+    let eligible = journal.unsuppressed(scan.files)?;
+    let (facts, waiting) = stability.ready(
+        eligible,
+        Instant::now(),
+        Duration::from_secs(config.settle_seconds.clamp(2, 60)),
+    );
+    let mut base = Plan {
+        scanned,
+        waiting,
+        notices: scan.notices,
+        ..Plan::default()
+    };
+    let mut candidates = Vec::new();
+    for fact in facts {
+        let cached = journal.ai_decision(&ai::cache_key(config, &fact)?)?;
+        if cached.as_ref().is_some_and(|d| d.category.is_none()) {
+            if base.notices.len() < 200 {
+                base.notices.push(format!(
+                    "AI left {} unclassified. Reclassify to ask again.",
+                    fact.path.file_name().unwrap_or_default().to_string_lossy()
+                ));
+            }
+            continue;
+        }
+        candidates.push((fact, cached));
+    }
+    candidates
+        .sort_by_key(|(fact, cached)| (if cached.is_none() { 0 } else { 1 }, path_key(&fact.path)));
+    if candidates.len() > ai::RUN_LIMIT {
+        candidates.truncate(ai::RUN_LIMIT);
+        base.notices.push(
+            "AI plan limited to 100 files. Organize or review this batch, then preview again."
+                .into(),
+        );
+    }
+    let (facts, cached) = candidates.into_iter().unzip();
+    Ok(ai::Job {
+        config: config.clone(),
+        facts,
+        cached,
+        base,
+    })
+}
+fn spawn_ai(
+    id: u64,
+    job: Option<ai::Job>,
+    check: Option<AiSettings>,
+    cancel: Arc<AtomicBool>,
+    running: Arc<AtomicBool>,
+    commands: SyncSender<Command>,
+    client: Arc<dyn ai::CompletionClient>,
+) -> Result<()> {
+    ensure!(
+        running
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok(),
+        "A previous AI request is still finishing. Try again in up to 45 seconds."
+    );
+    thread::spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Some(job) = job {
+                ai::run(job, client.as_ref(), &cancel, |done, total| {
+                    let _ = commands.send(Command::AiProgress { id, done, total });
+                })
+                .map(AiCompletion::Plan)
+            } else {
+                client
+                    .models(check.as_ref().expect("AI connection settings"))
+                    .map(AiCompletion::Connection)
+            }
+        }))
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("AI analysis stopped unexpectedly")))
+        .map_err(|e| format!("{e:#}"));
+        running.store(false, Ordering::SeqCst);
+        let _ = commands.send(Command::AiFinished { id, result });
+    });
     Ok(())
 }

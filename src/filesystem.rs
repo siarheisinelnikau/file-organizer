@@ -167,7 +167,11 @@ pub fn scan(config: &Config) -> Result<Scan> {
     let mut excluded: Vec<_> = config
         .rules
         .iter()
-        .filter(|r| r.enabled && r.action != crate::model::Action::Rename)
+        .filter(|r| {
+            config.mode == crate::model::PlanningMode::Rules
+                && r.enabled
+                && r.action != crate::model::Action::Rename
+        })
         .filter_map(|r| {
             let p = Path::new(&r.destination).join(".validation");
             inside(&p, &config.destination_roots)
@@ -175,6 +179,9 @@ pub fn scan(config: &Config) -> Result<Scan> {
                 .and_then(|p| p.parent().map(Path::to_owned))
         })
         .collect();
+    if config.mode == crate::model::PlanningMode::AiHub {
+        excluded.push(crate::ai::output_root(config)?);
+    }
     excluded.sort();
     excluded.dedup();
     let mut out = Scan {
@@ -355,6 +362,15 @@ impl LockedFile {
             hash.update(&buffer[..n]);
         }
         Ok(format!("{:x}", hash.finalize()))
+    }
+
+    pub fn read_prefix(&mut self, limit: usize) -> Result<Vec<u8>> {
+        self.file.seek(SeekFrom::Start(0))?;
+        let mut bytes = Vec::new();
+        Read::by_ref(&mut self.file)
+            .take(limit as u64)
+            .read_to_end(&mut bytes)?;
+        Ok(bytes)
     }
 
     pub fn copy_to(&mut self, path: &Path) -> Result<()> {

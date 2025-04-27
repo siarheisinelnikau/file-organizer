@@ -51,7 +51,7 @@ impl Organizer {
                     caption(ui, format!("Version {}", updater::VERSION));
                     if self.available_update.is_some() && ui.link("Update available").clicked() {
                         self.page = Page::Settings;
-                        self.settings_tab = 2;
+                        self.settings_tab = 3;
                     }
                     ui.add_space(12.0);
                     ui.label(
@@ -107,13 +107,30 @@ impl Organizer {
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if self.dirty
-                            && primary(ui, "Save changes", !self.busy && !self.stopped).clicked()
+                            && primary(
+                                ui,
+                                "Save changes",
+                                !self.busy && !self.ai_busy && !self.stopped,
+                            )
+                            .clicked()
                         {
                             self.send(Command::Save(self.config.clone()));
                             self.dirty = false;
                         }
-                        if self.busy {
-                            ui.spinner();
+                        if self.ai_busy {
+                            if ui.button("Cancel AI").clicked() {
+                                self.send(Command::CancelAi);
+                            }
+                            caption(
+                                ui,
+                                if self.ai_total > 0 {
+                                    format!("AI · {} / {} files", self.ai_done, self.ai_total)
+                                } else {
+                                    "AI · connecting".into()
+                                },
+                            );
+                        } else if self.busy {
+                            ui.label("Working…");
                         }
                     });
                 });
@@ -141,18 +158,57 @@ impl Organizer {
                         "Finishing the current file safely before closing…",
                     );
                 }
-                ui.add_enabled_ui(!self.busy && !self.stopped && !self.shutting_down, |ui| {
-                    match self.page {
+                ui.add_enabled_ui(
+                    !self.busy && !self.ai_busy && !self.stopped && !self.shutting_down,
+                    |ui| match self.page {
                         Page::Review => self.review_view(ui),
                         Page::Rules => self.rules_view(ui),
                         Page::Activity => self.activity_view(ui),
                         Page::Settings => self.settings_view(ui),
-                    }
-                });
+                    },
+                );
             });
     }
 
     fn review_view(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.config.mode, PlanningMode::AiHub, "AI Hub");
+            ui.selectable_value(&mut self.config.mode, PlanningMode::Rules, "Manual rules");
+        });
+        ui.add_space(12.0);
+        let ai = self.config.mode == PlanningMode::AiHub;
+        if ai {
+            caption(
+                ui,
+                if self.config.ai.include_text {
+                    "Universal reads filenames, relative folders and short text excerpts. Review its proposed folders below."
+                } else {
+                    "Universal categorizes filenames and relative folders. File contents are excluded."
+                },
+            );
+            if setup_target(&self.config).is_some() {
+                surface(ui, |ui| {
+                    section(ui, "Let AI find the right place");
+                    caption(
+                        ui,
+                        "Choose your source folders and an allowed destination, then describe how you want files organized. No rules to write.",
+                    );
+                    ui.add_space(12.0);
+                    if primary(ui, "Set up AI organization", true).clicked() {
+                        self.page = Page::Settings;
+                        self.settings_tab = if self.config.source_roots.is_empty()
+                            || self.config.destination_roots.is_empty()
+                        {
+                            0
+                        } else {
+                            1
+                        };
+                    }
+                });
+                return;
+            }
+            ui.add_space(10.0);
+        }
         if let Some(target) = setup_target(&self.config) {
             let folders_missing = target == Page::Settings;
             surface(ui, |ui| {
@@ -223,10 +279,11 @@ impl Organizer {
             return;
         }
         ui.horizontal_wrapped(|ui| {
-            if primary(ui, "Preview changes", true).clicked() {
+            if primary(ui, if ai { "Create AI plan" } else { "Preview changes" }, true).clicked() {
                 self.send(Command::Preview(self.config.clone()));
                 self.dirty = false;
             }
+            if ai && ui.button("Reclassify").on_hover_text("Discard cached AI categories and ask Universal again. This sends another request.").clicked() { self.send(Command::Reclassify(self.config.clone())); self.dirty = false; }
             if ui
                 .button("Watch for changes")
                 .on_hover_text("Keep this preview updated. Files only change after approval.")
@@ -259,7 +316,9 @@ impl Organizer {
                 });
                 caption(
                     ui,
-                    if self.plan.scanned == 0 {
+                    if ai {
+                        "Create an AI plan to propose categories for settled files. Review the result before organizing."
+                    } else if self.plan.scanned == 0 {
                         "Preview your folders to find files that match your rules."
                     } else {
                         "No settled files currently match an enabled rule. You can adjust your rules or check again later."
@@ -269,8 +328,17 @@ impl Organizer {
         } else {
             ui.horizontal_wrapped(|ui| {
                 ui.strong(format!("{} proposed changes", self.plan.operations.len()));
-                if ui.small_button("Select all").clicked() {
-                    self.selected.fill(true);
+                if ui
+                    .small_button(if ai {
+                        "Select recommended"
+                    } else {
+                        "Select all"
+                    })
+                    .clicked()
+                {
+                    for (selected, op) in self.selected.iter_mut().zip(&self.plan.operations) {
+                        *selected = !ai || file_organizer::ai::recommended(op, &self.config.ai);
+                    }
                 }
                 if ui.small_button("Clear").clicked() {
                     self.selected.fill(false);
@@ -306,68 +374,111 @@ impl Organizer {
                 ui,
                 "File dates and basic attributes are preserved. Find undo in Activity.",
             );
+            if ai {
+                caption(
+                    ui,
+                    format!(
+                        "Recommended: model confidence at least {}%. This estimate is not a guarantee; check the destinations.",
+                        self.config.ai.minimum_confidence
+                    ),
+                );
+            }
             ui.add_space(8.0);
             egui::ScrollArea::vertical()
                 .id_salt("preview")
                 .auto_shrink([false, true])
                 .max_height((ui.available_height() - 68.0).max(100.0))
-                .show_rows(ui, 134.0, self.plan.operations.len(), |ui, range| {
-                    for i in range {
-                        let op = &self.plan.operations[i];
-                        Frame::new()
-                            .fill(Color32::WHITE)
-                            .inner_margin(Margin::same(12))
-                            .corner_radius(8)
-                            .show(ui, |ui| {
-                                ui.set_min_width(ui.available_width());
-                                ui.set_min_height(104.0);
-                                ui.horizontal(|ui| {
-                                    ui.checkbox(&mut self.selected[i], "")
-                                        .on_hover_text("Include this file in the approved changes");
-                                    ui.vertical(|ui| {
-                                        ui.horizontal(|ui| {
-                                            let name = op
-                                                .source
-                                                .file_name()
-                                                .unwrap_or_default()
-                                                .to_string_lossy();
-                                            ui.allocate_ui_with_layout(
-                                                egui::vec2(
-                                                    (ui.available_width() - 160.0).max(120.0),
-                                                    34.0,
-                                                ),
-                                                egui::Layout::left_to_right(egui::Align::Center),
-                                                |ui| {
-                                                    ui.add(
-                                                        egui::Label::new(
-                                                            RichText::new(name.as_ref()).strong(),
+                .show_rows(
+                    ui,
+                    if ai { 164.0 } else { 134.0 },
+                    self.plan.operations.len(),
+                    |ui, range| {
+                        for i in range {
+                            let op = &self.plan.operations[i];
+                            Frame::new()
+                                .fill(Color32::WHITE)
+                                .inner_margin(Margin::same(12))
+                                .corner_radius(8)
+                                .show(ui, |ui| {
+                                    ui.set_min_width(ui.available_width());
+                                    ui.set_min_height(if ai { 134.0 } else { 104.0 });
+                                    ui.horizontal(|ui| {
+                                        ui.checkbox(&mut self.selected[i], "").on_hover_text(
+                                            "Include this file in the approved changes",
+                                        );
+                                        ui.vertical(|ui| {
+                                            ui.horizontal(|ui| {
+                                                let name = op
+                                                    .source
+                                                    .file_name()
+                                                    .unwrap_or_default()
+                                                    .to_string_lossy();
+                                                ui.allocate_ui_with_layout(
+                                                    egui::vec2(
+                                                        (ui.available_width() - 160.0).max(120.0),
+                                                        34.0,
+                                                    ),
+                                                    egui::Layout::left_to_right(
+                                                        egui::Align::Center,
+                                                    ),
+                                                    |ui| {
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                RichText::new(name.as_ref())
+                                                                    .strong(),
+                                                            )
+                                                            .truncate(),
                                                         )
-                                                        .truncate(),
+                                                        .on_hover_text(name.as_ref());
+                                                    },
+                                                );
+                                                ui.label(
+                                                    RichText::new(format!("{:?}", op.action))
+                                                        .color(ACCENT),
+                                                );
+                                                ui.label(
+                                                    RichText::new(size_label(op.stamp.bytes))
+                                                        .color(MUTED)
+                                                        .small(),
+                                                );
+                                            });
+                                            if let Some(decision) = &op.ai {
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        RichText::new(format!(
+                                                            "{}% · {}",
+                                                            decision.confidence, decision.reason
+                                                        ))
+                                                        .color(
+                                                            if file_organizer::ai::recommended(
+                                                                op,
+                                                                &self.config.ai,
+                                                            ) {
+                                                                ACCENT
+                                                            } else {
+                                                                WARNING
+                                                            },
+                                                        ),
                                                     )
-                                                    .on_hover_text(name.as_ref());
-                                                },
-                                            );
-                                            ui.label(
-                                                RichText::new(format!("{:?}", op.action))
-                                                    .color(ACCENT),
-                                            );
-                                            ui.label(
-                                                RichText::new(size_label(op.stamp.bytes))
-                                                    .color(MUTED)
-                                                    .small(),
-                                            );
-                                        });
-                                        path_label(ui, &op.source.display().to_string());
-                                        ui.horizontal(|ui| {
-                                            ui.label(RichText::new("to").color(ACCENT));
-                                            path_label(ui, &op.destination.display().to_string());
+                                                    .truncate(),
+                                                )
+                                                .on_hover_text(&decision.reason);
+                                            }
+                                            path_label(ui, &op.source.display().to_string());
+                                            ui.horizontal(|ui| {
+                                                ui.label(RichText::new("to").color(ACCENT));
+                                                path_label(
+                                                    ui,
+                                                    &op.destination.display().to_string(),
+                                                );
+                                            });
                                         });
                                     });
                                 });
-                            });
-                        ui.add_space(6.0);
-                    }
-                });
+                            ui.add_space(6.0);
+                        }
+                    },
+                );
         }
         if !self.plan.notices.is_empty() {
             egui::CollapsingHeader::new(format!("{} items to know about", self.plan.notices.len()))
@@ -384,6 +495,12 @@ impl Organizer {
     }
 
     fn rules_view(&mut self, ui: &mut egui::Ui) {
+        if self.config.mode == PlanningMode::AiHub {
+            caption(
+                ui,
+                "AI Hub is active. These rules are used only when Manual rules is selected on Review.",
+            );
+        }
         ui.horizontal(|ui| {
             for label in ["Documents", "Photos", "Downloads", "Custom"] {
                 if ui.button(format!("+ {label}")).clicked() {
@@ -549,7 +666,7 @@ impl Organizer {
 
     fn settings_view(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            for (i, label) in ["Folders", "Automation", "Updates & about"]
+            for (i, label) in ["Folders", "AI Hub", "Automation", "Updates & about"]
                 .iter()
                 .enumerate()
             {
@@ -563,7 +680,7 @@ impl Organizer {
                     section(ui, "Folders to organize"); caption(ui, "Only these folders are scanned. Choose existing local folders.");
                     roots(ui, "source", &mut self.config.source_roots);
                     ui.checkbox(&mut self.config.recursive, "Include subfolders");
-                    section(ui, "Allowed destinations"); caption(ui, "Rules may create subfolders here. Other locations stay out of reach.");
+                    section(ui, "Allowed destinations"); caption(ui, "AI and rules may create subfolders here. Other locations stay out of reach.");
                     roots(ui, "destination", &mut self.config.destination_roots);
                     egui::CollapsingHeader::new("File readiness").show(ui, |ui| {
                         ui.horizontal(|ui| { ui.label("Wait for a file to stop changing"); ui.add(egui::DragValue::new(&mut self.config.settle_seconds).range(2..=60).suffix(" seconds")); });
@@ -571,16 +688,18 @@ impl Organizer {
                     });
                     if self.dirty { caption(ui, "Save changes above when your folders are ready."); }
                 }
-                1 => {
+                1 => self.ai_settings(ui),
+                2 => {
                     section(ui, "Review first. Automate when ready.");
                     caption(ui, "Every launch starts paused. Monitoring continues only while FileOrganizer is open.");
                     ui.add_space(12.0);
-                    ui.checkbox(&mut self.auto_approved, "I reviewed my rules and want matching files organized automatically");
+                    ui.checkbox(&mut self.auto_approved, "I reviewed my setup and want files organized automatically");
                     ui.add_space(8.0);
-                    if primary(ui, "Start automatic organization", self.auto_approved && self.pending == 0 && !self.config.rules.is_empty()).clicked() {
+                    if primary(ui, "Start automatic organization", self.auto_approved && self.pending == 0 && setup_target(&self.config).is_none()).clicked() {
                         self.send(Command::Watch { config: self.config.clone(), automatic: true }); self.dirty = false;
                     }
                     caption(ui, "For approval on every batch, use Watch for changes on the Review screen.");
+                    if self.config.mode == PlanningMode::AiHub { caption(ui, format!("AI proposals below {}% confidence stay in Review. Confidence is the model’s estimate. Up to 100 files per batch; requests are made only after monitoring starts.", self.config.ai.minimum_confidence)); }
                     section(ui, "Undo stays available"); caption(ui, "Automatic changes use the same history and recovery checks as approved batches.");
                 }
                 _ => {
@@ -596,7 +715,7 @@ impl Organizer {
                     if self.update_busy { ui.add(egui::ProgressBar::new(self.download_progress).show_percentage()); }
                     caption(ui, &self.update_status);
                     ui.hyperlink_to("Project & releases", updater::REPOSITORY);
-                    section(ui, "Your data stays local"); caption(ui, "Rules and undo history stay on this computer. File contents are never uploaded. Update checks contact GitHub.");
+                    section(ui, "Your data"); caption(ui, "Settings and undo history stay on this computer. AI analysis sends filenames and relative folders to your configured AI Hub; short text excerpts are optional. Update checks contact GitHub.");
                     egui::CollapsingHeader::new("Data location & support").show(ui, |ui| {
                         path_label(ui, &self.directory.display().to_string()); caption(ui, "Updates preserve your settings and undo history.");
                     });
@@ -618,7 +737,7 @@ fn surface<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
         })
         .inner
 }
-fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
+pub(super) fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.label(RichText::new(label).strong());
     ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
 }
@@ -675,6 +794,11 @@ fn size_label(bytes: u64) -> String {
 fn setup_target(config: &Config) -> Option<Page> {
     if config.source_roots.iter().all(|p| p.trim().is_empty()) {
         return Some(Page::Settings);
+    }
+    if config.mode == PlanningMode::AiHub {
+        return (config.destination_roots.iter().all(|p| p.trim().is_empty())
+            || config.ai.destination.trim().is_empty())
+        .then_some(Page::Settings);
     }
     if config.rules.is_empty() {
         return Some(Page::Rules);

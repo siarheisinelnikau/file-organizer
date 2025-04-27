@@ -39,6 +39,9 @@ pub fn capture_screens(args: &[String]) -> Result<()> {
         "welcome",
         "recovery",
         "automation",
+        "ai-review",
+        "ai-settings",
+        "ai-working",
     ] {
         ensure!(
             start.elapsed() < Duration::from_secs(20),
@@ -103,6 +106,7 @@ pub fn capture_screens(args: &[String]) -> Result<()> {
 impl Organizer {
     fn fixture(&mut self, scene: &str) {
         if scene == "welcome" {
+            self.config.mode = PlanningMode::AiHub;
             return;
         }
         self.config.source_roots = vec![r"C:\Demo\Downloads".into()];
@@ -129,6 +133,7 @@ impl Organizer {
         self.plan.scanned = 24;
         for (name, rule_name, folder, bytes) in facts {
             self.plan.operations.push(Operation {
+                ai: None,
                 source: PathBuf::from(format!(r"C:\Demo\Downloads\{name}")),
                 destination: PathBuf::from(format!(r"C:\Demo\Organized\{folder}\{name}")),
                 action: Action::Move,
@@ -140,19 +145,59 @@ impl Organizer {
                 rule_name: rule_name.into(),
             });
         }
+        if scene.starts_with("ai-") {
+            self.config.mode = PlanningMode::AiHub;
+            self.config.ai.destination = r"C:\Demo\Organized".into();
+            for (i, op) in self.plan.operations.iter_mut().enumerate() {
+                op.ai = Some(AiDecision {
+                    category: Some(
+                        if i == 0 {
+                            "Documents/Finance"
+                        } else if i == 1 {
+                            "Photos/Travel"
+                        } else {
+                            "Projects/Archives"
+                        }
+                        .into(),
+                    ),
+                    name: None,
+                    confidence: if i == 2 { 55 } else { 94 },
+                    reason: if i == 0 {
+                        "Report name suggests a financial document."
+                    } else if i == 1 {
+                        "Filename describes a seaside trip."
+                    } else {
+                        "Project archive; subject is unclear."
+                    }
+                    .into(),
+                });
+                op.destination = PathBuf::from(r"C:\Demo\Organized")
+                    .join(op.ai.as_ref().unwrap().category.as_ref().unwrap())
+                    .join(op.source.file_name().unwrap());
+            }
+        }
+        if scene == "ai-working" {
+            self.ai_busy = true;
+            self.ai_done = 10;
+            self.ai_total = 24;
+            self.plan = Plan::default();
+        }
         self.selected = vec![true, true, false];
         self.page = match scene {
             "rules" => Page::Rules,
-            "settings" | "updates" | "automation" => Page::Settings,
+            "settings" | "updates" | "automation" | "ai-settings" => Page::Settings,
             "activity" | "recovery" => Page::Activity,
             _ => Page::Review,
         };
         self.dirty = scene == "rules" || scene == "settings";
         if scene == "automation" {
+            self.settings_tab = 2;
+        }
+        if scene == "ai-settings" {
             self.settings_tab = 1;
         }
         if scene == "updates" {
-            self.settings_tab = 2;
+            self.settings_tab = 3;
             self.update_status = "Check for a new version whenever you need one.".into();
         }
         if scene == "activity" || scene == "recovery" {

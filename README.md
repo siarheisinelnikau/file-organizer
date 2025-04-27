@@ -1,10 +1,12 @@
 # FileOrganizer
 
-A Windows desktop organizer that turns folder rules into a reviewable plan, then records every applied action for recovery and undo.
+A Windows desktop organizer that uses AI Hub Universal or manual rules to create a reviewable filing plan, then records every applied action for recovery and undo.
 
 **Status:** local version 0.1.0, with isolated-fixture tests and real application-generated client-area screenshots. The screens below are rendered by the executable's CPU backend using demonstration data, without opening a window or accessing user folders. Native input, window lifecycle and idle/minimized load measurements remain pending. The planned [public repository](https://github.com/siarheisinelnikau/file-organizer) and releases have not been published by this session.
 
 ## What it does
+
+- AI Hub Universal categorization into subject/project subfolders, with optional filename suggestions, reasons and confidence-based review. Manual rules remain available.
 
 - Visual, ordered rules with an enable switch and first-match behavior.
 - Conditions for case-insensitive filename globs, extensions, relative source subfolders, byte size and age since last modification.
@@ -22,12 +24,16 @@ FileOrganizer is an independent MIT-licensed implementation. [File Juggler](http
 
 Real CPU-rendered client areas at 1160 × 820, 100% scale, with demonstration paths and files. These images verify the app's layout; they do not show OS chrome or certify native input/performance.
 
-![Review proposed file changes](docs/screenshots/review.png)
+![AI-proposed categories with reasons and confidence estimates; demonstration fixture](docs/screenshots/ai-review.png)
+
+![AI Hub connection and organization preferences](docs/screenshots/ai-settings.png)
 
 ![Folder settings with an explicit Save changes action](docs/screenshots/settings.png)
 
 <details>
-<summary>Rule editor, updates, automation, history, onboarding and recovery</summary>
+<summary>Manual review, rule editor, updates, automation, history, onboarding and recovery</summary>
+
+![Manual-rule review](docs/screenshots/review.png)
 
 ![Ordered rules and the visual editor](docs/screenshots/rules.png)
 
@@ -45,7 +51,7 @@ Real CPU-rendered client areas at 1160 × 820, 100% scale, with demonstration pa
 
 ## Build and package
 
-Use Rust 1.95 or newer with the Windows MSVC toolchain and existing Visual C++ build tools. No service, driver, browser runtime, AI model, account or API key is required. Dependencies are locked in `Cargo.lock`; SQLite and TLS support are bundled into the executable. The Windows x64 target uses the static CRT.
+Use Rust 1.95 or newer with the Windows MSVC toolchain and existing Visual C++ build tools. Manual-rule mode requires no AI service or account. AI mode connects to your running AI Hub and local model, using your hub token if required. No service, driver or browser runtime is installed. Dependencies are locked in `Cargo.lock`; SQLite and TLS support are bundled into the executable. The Windows x64 target uses the static CRT.
 
 ```powershell
 cargo fmt --all --check
@@ -60,7 +66,13 @@ Optional static inspection with Python's standard library (no executable launch)
 
 For a first manual run, launch the packaged executable yourself. Start with a disposable folder and keep independent backups before using important files.
 
-## First workflow
+## AI Hub organization
+
+Choose source and allowed destination folders in **Settings → Folders**, then configure **Settings → AI Hub** with `http://127.0.0.1:8080/v1`, your hub token and an organized folder. Start a local model in AI Hub. On **Review**, select **AI Hub → Create AI plan**. Describe the desired organization instead of creating rules. Review reasons/destinations and select proposals before applying, or explicitly enable confidence-gated automation.
+
+`universal` routes to the most recently started running local model in your hub. It is not a separate model to download. Filename, relative subfolder and size are sent by default; optional short text excerpts are off by default. PDF/image/OCR analysis is not implemented. Cached decisions avoid repeat requests; **Reclassify** asks again after a model change. [Setup, data sharing, limits and verification](docs/AI_HUB.md). Live model integration remains unverified in this network-restricted development environment.
+
+## Manual rules workflow
 
 1. Open **Settings → Folders**. Add existing absolute source folders and existing output roots. No real folders are preselected. Local drive paths are supported; symbolic links, junctions/reparse points and network paths are refused.
 2. Open **Rules**, add a template, and enter a destination inside an approved output root. Missing subfolders can be created during application. For Rename, the destination stays in the original source folder.
@@ -79,13 +91,13 @@ On Windows, source/output handles deny concurrent write/delete sharing while cop
 
 Windows creation, last-access and last-write timestamps and the basic attributes Read-only, Hidden, System, Archive, Temporary and Not content indexed are preserved. A file with no attribute flags keeps that state. Handles used to read originals and undo outputs suppress access-time updates. The journal stores the original values before copying; move/rename undo and crash recovery restore that snapshot even if the output's metadata was edited later. Copy undo removes the copy and leaves later changes to the source intact. Read-only files are supported: the flag is cleared only when removing a verified file, with metadata restoration attempted if deletion fails. Metadata restoration failure stops the operation before deleting the last complete copy.
 
-This is a desktop tool for trusted, user-owned local folders. It is not a security sandbox against a malicious process swapping directory ancestors during an operation. Filesystem/hardware flush guarantees still apply. Timestamp precision depends on the destination filesystem. NTFS change time, ACLs, ownership, alternate streams and extended attributes are not copied. Storage/cloud flags such as compression, encryption, sparse, offline or pinned state require separate mechanisms; sources carrying unsupported flags are rejected before content copying instead of silently dropping them. Attribute-write permission is required even for source copies so that access-time preservation is possible. There is no automatic deletion rule, content analysis, cloud organization, tray mode, autostart registration or service installation.
+This is a desktop tool for trusted, user-owned local folders. It is not a security sandbox against a malicious process swapping directory ancestors during an operation. Filesystem/hardware flush guarantees still apply. Timestamp precision depends on the destination filesystem. NTFS change time, ACLs, ownership, alternate streams and extended attributes are not copied. Storage/cloud flags such as compression, encryption, sparse, offline or pinned state require separate mechanisms; sources carrying unsupported flags are rejected before content copying instead of silently dropping them. Attribute-write permission is required even for source copies so that access-time preservation is possible. There is no automatic deletion rule, PDF/image/OCR analysis, tray mode, autostart registration or service installation.
 
 Scans are bounded to 10,000 eligible files, 2,000 directories and 30,000 directory entries; each plan has at most 2,000 actions. Output-name inspection is bounded to 30,000 entries. Activity displays the latest 500 records; the durable journal and processed-file fingerprints remain on disk. Choose narrower folders for larger collections. Native watcher errors pause organization; a 60-second reconciliation scan while monitoring covers age conditions and coalesced notifications. A missing/inaccessible folder stops or reports the scan rather than silently following another location.
 
 ## Recovery and local data
 
-Settings and journal data live under `%LOCALAPPDATA%\FileOrganizer\organizer.db`, with SQLite WAL/SHM files and an instance lock. A second instance using the same data directory is refused. There is no telemetry. The database contains paths, rules, timestamps and file hashes; protect it as local personal data. File contents stay local. Public update checks contact GitHub.
+Settings and journal data live under `%LOCALAPPDATA%\FileOrganizer\organizer.db`, with SQLite WAL/SHM files and an instance lock. A second instance using the same data directory is refused. There is no telemetry. The database contains paths, rules, timestamps and file hashes; protect it as local personal data. AI mode sends filenames and relative folders to the configured hub, plus short text excerpts only when enabled. AI decisions and explanations are cached in the database. Tokens stay in Windows Credential Manager. Public update checks contact GitHub.
 
 Unfinished records block new application until resolved. Recovery inspects recorded paths and hashes, restores a missing original if possible, then removes only matching output/staging files. Changed outputs, occupied restore paths with different content, missing files or partially written staging files are preserved and require manual inspection. See [recovery details](docs/ARCHITECTURE.md). Back up the entire data directory while the application is closed before making any manual database repair. There is intentionally no one-click way to discard an ambiguous journal record.
 
@@ -101,12 +113,12 @@ No release/network download or updater installation has been exercised in this d
 
 ## Development
 
-The pure planner is separated from filesystem inspection, journal execution, watcher scheduling and GUI code. One bounded background worker serializes filesystem work; a separate worker serializes update requests. The GUI wakes for input or results and does not scan folders or hash files in paint callbacks. See [architecture](docs/ARCHITECTURE.md) and [validation record](docs/VALIDATION.md).
+The pure planner is separated from filesystem inspection, journal execution, watcher scheduling and GUI code. One bounded background worker serializes filesystem work; a cancellable single-flight AI job performs classification, and a separate worker serializes update requests. The GUI wakes for input or results and does not scan folders or hash files in paint callbacks. See [architecture](docs/ARCHITECTURE.md) and [validation record](docs/VALIDATION.md).
 
 License: [MIT](LICENSE).
 
 ## Static visual review without computer use
 
-The developer-only mode `FileOrganizer-v0.1.0.exe --capture ABSOLUTE_OUTPUT_DIRECTORY [WIDTH HEIGHT [SCALE]]` renders eight actual screens through the same UI and CPU renderer as normal operation, writes PNGs plus `capture.json`, and exits. Use a fresh directory; existing files are never overwritten. The mode is parsed before normal startup: no window, file worker, update worker, database, filesystem watch or network request is started. Examples: default 1160 × 820; `960 680` for the minimum layout; `1200 850 1.25` for a 125% capture with a 960 × 680 logical client area. It has a 20-second internal batch deadline and three frames per screen; run it with a 30-second external process timeout.
+The developer-only mode `FileOrganizer-v0.1.0.exe --capture ABSOLUTE_OUTPUT_DIRECTORY [WIDTH HEIGHT [SCALE]]` renders eleven actual screen fixtures through the same UI and CPU renderer as normal operation, writes PNGs plus `capture.json`, and exits. Use a fresh directory; existing files are never overwritten. The mode is parsed before normal startup: no window, file worker, update worker, database, filesystem watch or network request is started. Examples: default 1160 × 820; `960 680` for the minimum layout; `1200 850 1.25` for a 125% capture with a 960 × 680 logical client area. It has a 20-second internal batch deadline and three frames per screen; run it with a 30-second external process timeout.
 
 The normal desktop host uses `Wait`/`WaitUntil`, discards stale repaint requests, and keeps hidden/minimized data changes dirty for restoration without rendering them. An optional `--render-log ABSOLUTE_JSON_PATH` writes frame/wakeup counts and layout/raster/present totals after an ordinary run exits. This diagnostic is outside consumer settings. It is preparation for native measurement, not proof of settled idle behavior. See [design and rendering review](docs/DESIGN_REVIEW.md).

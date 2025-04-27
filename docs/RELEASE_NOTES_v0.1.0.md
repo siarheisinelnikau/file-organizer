@@ -1,8 +1,10 @@
 # FileOrganizer 0.1.0 — release draft
 
-Initial Windows x64 implementation of rule-based file organization with review, explicit automation and recoverable undo. This draft describes local source capabilities, not a published or interactively validated release.
+Initial Windows x64 implementation of AI-assisted and rule-based file organization with review, explicit automation and recoverable undo. This draft describes local source capabilities, not a published or interactively validated release.
 
 ## Added
+
+- AI Hub Universal mode: automatic category proposals, optional filename suggestions and short text excerpts, explanations, confidence-gated automation, persistent classification cache and cancellable analysis. Tokens use endpoint-scoped Windows Credential Manager entries.
 
 - Ordered visual rules for filename patterns, extensions, source subfolders, file size and modification age, with Downloads/archives, Photos and Documents templates.
 - Move, copy and rename actions constrained to approved folders, with dry-run plans and per-file selection.
@@ -23,13 +25,14 @@ Initial Windows x64 implementation of rule-based file organization with review, 
 ## Distribution
 
 - Planned standalone executable: `FileOrganizer-v0.1.0.exe`, Windows x64 MSVC. Keep `SHA256SUMS.txt` beside the release asset.
-- No account, AI service, model, driver, service or browser runtime is required.
+- Manual rules work without AI. AI mode requires a running AI Hub/local model and its token if authentication is enabled. No model, driver, service or browser runtime is installed.
 - MIT-licensed source. Runtime dependencies remain subject to their own compatible licenses.
 
 ## Known limitations before publication
 
-Local verification: 33 isolated-fixture/rendering tests, formatting, Clippy and optimized Windows x64 packaging passed. Static PE/import and SHA-256 inspection passed without entering normal GUI operation. See `docs/VALIDATION.md` for the precise artifact digest and test scope.
+Local verification: 43 isolated-fixture/rendering tests, formatting, Clippy and optimized Windows x64 packaging passed. Static PE/import and SHA-256 inspection passed without entering normal GUI operation. See `docs/VALIDATION.md` for the precise artifact digest and test scope.
 
+- Live Hub authentication/model quality and HTTP transport remain unverified: the managed environment rejects even loopback client sockets (Windows 10013). The synthetic transport test is explicitly ignored; deterministic AI-client tests pass.
 - Native GUI interaction and visible/minimized performance measurements remain pending. Real CPU-rendered client-area application/settings screenshots are included.
 - Live public-release network checks and installation/restart/rollback have not been exercised. The canonical repository/release may not exist yet.
 - Local-drive regular files only. No links/reparse traversal or network folders. ACLs, ownership, alternate streams and extended attributes are not preserved; storage/cloud flags requiring special copy mechanisms are rejected. Older journal entries cannot reconstruct original metadata that was never recorded.
