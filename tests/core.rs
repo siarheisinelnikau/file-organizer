@@ -63,6 +63,7 @@ impl Fixture {
         let source = self.source.join("report.txt");
         fs::write(&source, b"original fixture bytes").unwrap();
         Operation {
+            ai: None,
             rule_id: "fixture".into(),
             rule_name: "Fixture".into(),
             stamp: disk::stamp(&fs::metadata(&source).unwrap()).unwrap(),

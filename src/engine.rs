@@ -137,6 +137,7 @@ pub fn plan(config: &Config, facts: &[FileFact], occupied: &HashSet<String>, now
         }
         reserved.insert(path_key(&destination));
         result.operations.push(Operation {
+            ai: None,
             rule_id: rule.id.clone(),
             rule_name: rule.name.clone(),
             source: file.path.clone(),

@@ -48,6 +48,7 @@ impl Journal {
                 id TEXT PRIMARY KEY, json TEXT NOT NULL, phase TEXT NOT NULL, error TEXT NOT NULL DEFAULT '',
                 created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S UTC','now')));
             CREATE TABLE IF NOT EXISTS processed (fingerprint TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS ai_decisions (fingerprint TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS operations_pending ON operations(phase)
                 WHERE phase NOT IN ('Done','Undone','Recovered');")?;
         Ok(Self { db })
@@ -58,13 +59,42 @@ impl Journal {
         let mut rows = statement.query([])?;
         match rows.next()? {
             Some(row) => Ok(serde_json::from_str(&row.get::<_, String>(0)?)?),
-            None => Ok(Config::default()),
+            None => Ok(Config {
+                mode: PlanningMode::AiHub,
+                ..Config::default()
+            }),
         }
     }
 
     pub fn save_config(&self, config: &Config) -> Result<()> {
         self.db.execute("INSERT INTO config(id,json) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET json=excluded.json",
             [serde_json::to_string(config)?])?;
+        Ok(())
+    }
+
+    pub fn ai_decision(&self, key: &str) -> Result<Option<AiDecision>> {
+        use rusqlite::OptionalExtension;
+        let json: Option<String> = self
+            .db
+            .query_row(
+                "SELECT json FROM ai_decisions WHERE fingerprint=?1",
+                [key],
+                |r| r.get(0),
+            )
+            .optional()?;
+        json.map(|j| serde_json::from_str(&j).map_err(Into::into))
+            .transpose()
+    }
+    pub fn save_ai_decisions(&mut self, decisions: &[(String, AiDecision)]) -> Result<()> {
+        let transaction = self.db.transaction()?;
+        for (key, decision) in decisions {
+            transaction.execute("INSERT INTO ai_decisions(fingerprint,json) VALUES(?1,?2) ON CONFLICT(fingerprint) DO UPDATE SET json=excluded.json",params![key,serde_json::to_string(decision)?])?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+    pub fn clear_ai_decisions(&self) -> Result<()> {
+        self.db.execute("DELETE FROM ai_decisions", [])?;
         Ok(())
     }
 

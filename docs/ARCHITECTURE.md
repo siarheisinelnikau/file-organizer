@@ -3,6 +3,8 @@
 ## Boundaries
 
 - `model.rs`: serializable rules, settings, facts and operations.
+- `ai.rs`: bounded Universal requests, strict response validation, category planning and a mockable completion boundary.
+- `credentials.rs`: endpoint-scoped application token storage in Windows Credential Manager.
 - `engine.rs`: pure first-match planning and collision reservation. No filesystem access.
 - `filesystem.rs`: bounded scans, canonical approved paths, link rejection, Windows file locking, hashing and no-overwrite publication.
 - `metadata.rs`: serializable original timestamps/basic attributes, handle-based restoration and suppression of reader-induced access-time changes.
@@ -20,6 +22,14 @@ The former eframe/OpenGL host has been replaced by `egui 0.37 → mesh/texture a
 The host uses `Wait`/`WaitUntil`, drops stale repaint requests, and guards frames with dirty/drawable state. Hidden/minimized/occluded windows retain dirty data without layout/raster/present. Worker events still drain and orderly shutdown remains available while hidden. Renderer failures stop further painting before orderly close. Finite offscreen captures execute this same UI and CPU rasterizer without constructing any window. Source inspection and captures do not constitute native idle/hidden/performance verification; the runtime gate remains incomplete pending an authorized native diagnostic run.
 
 When paused, the filesystem worker blocks on a command receiver. While monitoring it sleeps until an event/debounce, settling retry or 60-second reconciliation deadline. Native watcher callbacks use nonblocking bounded enqueue; a full queue coalesces notifications and the reconciliation scan covers missed callbacks. Monitoring is process-lifetime only and starts paused on every launch. A separate serial update worker keeps HTTP and installation preparation off the GUI thread.
+
+## AI planning
+
+AI mode excludes its organized subtree from scans and uses the same stable-file and processed-version checks as rules. A single-flight background job receives at most 100 facts and cached decisions. It asks Universal in batches of 10, validates every result and inventories proposed destination directories before reserving collision-free operations. The serial filesystem actor accepts only a matching live job ID, persists the completed cache and emits the plan. Cancellation/configuration changes invalidate the ID; stale completions cannot publish a plan or cache.
+
+No model commands or paths become direct filesystem instructions. Validated relative categories are appended to the configured approved output root, then the ordinary executor rechecks source stamps, approvals and collisions. AI provenance is optional on operations, so old journal JSON remains readable. Automatic AI execution filters by the configured confidence threshold; uncertain actions remain in Review. The model estimate is not a correctness guarantee.
+
+HTTP and model waits never run in frame callbacks or block the filesystem actor. Commands/results use bounded channels; one in-flight HTTP job is permitted, with connect/global timeouts of 5/45 seconds, no redirects and direct connections. Cancellation stops later batches and discards results but cannot instantly interrupt an existing blocking HTTP call. Paused/startup mode makes no AI requests. See [AI Hub contract and data sharing](AI_HUB.md).
 
 ## Execution protocol
 

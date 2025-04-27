@@ -1,3 +1,5 @@
+pub mod ai;
+pub mod credentials;
 pub mod engine;
 pub mod filesystem;
 pub mod journal;
