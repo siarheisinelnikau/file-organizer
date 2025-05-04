@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'package_policy.ps1')
 $projectDirectory = Split-Path -Parent $PSScriptRoot
 Push-Location -LiteralPath $projectDirectory
 try {
@@ -16,7 +17,11 @@ try {
     New-Item -ItemType Directory -Path $distribution -Force | Out-Null
     $assetName = "FileOrganizer-v$version.exe"
     $asset = Join-Path $distribution $assetName
-    Copy-Item -LiteralPath (Join-Path $projectDirectory "target\$targetTriple\release\file-organizer.exe") -Destination $asset
+    $builtAsset = Join-Path $projectDirectory "target\$targetTriple\release\file-organizer.exe"
+    python (Join-Path $PSScriptRoot 'inspect_executable.py') $builtAsset --expect-version $version --icon (Join-Path $projectDirectory 'assets/FileOrganizer.ico') | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Executable icon/version validation failed' }
+    Assert-PackageVersion -Version $version -SourcePath $builtAsset -AssetPath $asset
+    Copy-Item -LiteralPath $builtAsset -Destination $asset
     $digest = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText((Join-Path $distribution 'SHA256SUMS.txt'), "$digest  $assetName`n", [Text.UTF8Encoding]::new($false))
     Write-Output "Packaged $asset"

@@ -1,6 +1,6 @@
 # Validation record
 
-Development date: 2026-10-31 (Europe/Minsk).
+Latest verification: 2026-11-01 (Europe/Minsk).
 
 Computer use, desktop capture, normal GUI interaction, real user-folder watches, updater download/installation, external AI APIs, system changes and remote Git operations have not been performed. The design follow-up authorizes isolated application-generated visual review: the executable's finite headless branch renders only fixture UI and exits, without creating a native window, opening the user database or starting file/update workers. Compilation and these images do not certify native interaction or idle performance.
 
@@ -19,15 +19,15 @@ Results:
 
 - `cargo fmt --all --check`: passed.
 - `cargo clippy --offline --locked --all-targets -- -D warnings`: passed, no code diagnostics. Cargo reported environment-level incremental-cache hard-link warnings and used copies instead.
-- `cargo test --offline --locked --all-targets -- --test-threads=2`: **43 passed, 0 failed, 1 ignored**: 30 filesystem/planning/update regressions, 10 AI integration regressions and 3 rendering/workflow regressions. The ignored HTTP transport fixture is described below. No test creates a native window.
+- `cargo test --offline --locked --all-targets -- --test-threads=2`: **44 passed, 0 failed, 1 ignored**: 30 filesystem/planning/update regressions, 10 AI integration regressions and 4 branding/rendering/workflow regressions. The ignored HTTP transport fixture is described below. No test creates a native window.
 - `git diff --check`: passed.
 - `scripts/package.ps1` with `CARGO_NET_OFFLINE=true`: passed. Optimized `x86_64-pc-windows-msvc` build completed with two jobs and cached dependencies.
-- `python scripts/inspect_executable.py dist/FileOrganizer-v0.1.0.exe`: passed. AMD64, PE32+, Windows GUI subsystem; import table contains Windows system DLLs and no external MSVC runtime DLL. This checks binary structure, not actual graphics/desktop behavior.
+- `python scripts/inspect_executable.py dist/FileOrganizer-v0.2.0.exe`: passed. AMD64, PE32+, Windows GUI subsystem; import table contains Windows system DLLs and no external MSVC runtime DLL. This checks binary structure, not actual graphics/desktop behavior.
 
-Packaged artifact after the AI Hub integration: `dist/FileOrganizer-v0.1.0.exe`, **11,955,200 bytes**. `dist/SHA256SUMS.txt` matches the independently calculated inspection digest:
+Packaged artifact after the native icon/version repair: `dist/FileOrganizer-v0.2.0.exe`, **12,061,184 bytes**. `dist/SHA256SUMS.txt` matches the independently calculated inspection digest:
 
 ```text
-c4af7292d671b0cd90cac5559a7443e6a9f64aa335ce0877c15b24b26071e01f  FileOrganizer-v0.1.0.exe
+39263d0703f89934a6f92430fa5ffae5cb768ce7bc2b57794f7e17d2244cd648  FileOrganizer-v0.2.0.exe
 ```
 
 The normal GUI entry point was not launched. The release EXE was invoked only through its bounded `--capture` branch; all captures exited successfully. Distribution output is ignored by Git and remains available locally. Dependency/font notice audit remains required before publication.
@@ -37,6 +37,14 @@ Coverage includes compound/ordered conditions, invalid Windows device-name templ
 Metadata regressions verify all three Windows file timestamps using independently set fixture values and compare actual filesystem metadata. Copy/move/rename and undo are exercised with Normal, Read-only, Hidden, System, Archive, Temporary and Not content indexed combinations, including cleared Archive. Tests reopen the journal, edit output metadata before undo, preserve later source edits on copy undo, replay interrupted moves with an existing/missing original, clean read-only staging, read an old record with no metadata field, retain edited read-only output on refused undo, retain the only complete copy after an injected metadata-restoration error, and reuse a recently deleted destination name with a different creation time. All fixtures are local; no volume compression, filesystem policy or system setting is changed.
 
 Fixture location matters in this managed sandbox: the redirected system Temp folder permits creating files but rejects even ordinary renames and hard links with `Access denied`. The initial run exposed that environment restriction. Tests therefore create uniquely named temporary folders under this repository's ignored `target/test-fixtures/`, where no-overwrite publication and normal cleanup work. All 30 filesystem integration tests passed there; no permissions/elevation were requested and no real user files were touched.
+
+## Version and native icon verification
+
+- Windows resource compilation embeds FileVersion/ProductVersion 0.2.0.0 and OriginalFilename `FileOrganizer-v0.2.0.exe`. Independent Windows FileVersionInfo reading reports the expected product/name/version strings.
+- `inspect_executable.py --expect-version 0.2.0 --icon assets/FileOrganizer.ico` verified every embedded icon payload against the checked-in ICO: 16, 20, 24, 32, 40, 48, 64, 128 and 256 pixels. Actual decoded frames were inspected on light/dark backgrounds. The native icon constructor passed without creating a window.
+- `python scripts/test_versioning.py`: two isolated regressions passed, exercising patch/minor/major increments, dependency preservation and invalid-lockfile refusal before manifest writes.
+- `scripts/test_package_policy.ps1`: artificial-byte fixtures confirmed identical repeat packaging succeeds, changed same-version bytes and version regression fail, a new patch is accepted, and the existing artifact remains intact.
+- No Explorer icon-cache reset, shortcut/pinning change or native GUI launch was performed. Windows taskbar/window icon appearance still requires a future desktop observation; the missing resources and missing assignments are repaired and checked at the code/resource boundaries.
 
 ## AI integration verification
 
