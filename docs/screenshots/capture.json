@@ -10,7 +10,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 20,
+      "capture_ms": 16,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -18,7 +18,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 20,
+      "capture_ms": 14,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -26,7 +26,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 18,
+      "capture_ms": 12,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -34,7 +34,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 20,
+      "capture_ms": 16,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -42,7 +42,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 17,
+      "capture_ms": 11,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -50,7 +50,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 15,
+      "capture_ms": 14,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -58,7 +58,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 16,
+      "capture_ms": 12,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -66,7 +66,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 13,
+      "capture_ms": 14,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -74,7 +74,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 16,
+      "capture_ms": 13,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -82,7 +82,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 14,
+      "capture_ms": 10,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -92,7 +92,7 @@
   ],
   "frames": 33,
   "network_enabled": false,
-  "total_ms": 199,
+  "total_ms": 160,
   "window_created": false,
   "workers_started": false
 }

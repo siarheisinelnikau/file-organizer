@@ -198,14 +198,18 @@ impl ApplicationHandler<Wake> for Host {
             return;
         }
         let result = (|| -> Result<()> {
-            let window = Rc::new(
-                event_loop.create_window(
-                    Window::default_attributes()
-                        .with_title("FileOrganizer")
-                        .with_inner_size(winit::dpi::LogicalSize::new(1160.0, 820.0))
-                        .with_min_inner_size(winit::dpi::LogicalSize::new(960.0, 680.0)),
-                )?,
-            );
+            let icon = crate::branding::window_icon()?;
+            let attributes = Window::default_attributes()
+                .with_title("FileOrganizer")
+                .with_window_icon(Some(icon.clone()))
+                .with_inner_size(winit::dpi::LogicalSize::new(1160.0, 820.0))
+                .with_min_inner_size(winit::dpi::LogicalSize::new(960.0, 680.0));
+            #[cfg(windows)]
+            let attributes = {
+                use winit::platform::windows::WindowAttributesExtWindows;
+                attributes.with_taskbar_icon(Some(icon))
+            };
+            let window = Rc::new(event_loop.create_window(attributes)?);
             let context = softbuffer::Context::new(window.clone())
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             self.surface = Some(
