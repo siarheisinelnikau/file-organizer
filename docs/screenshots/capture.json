@@ -2,7 +2,7 @@
   "backend": "egui 0.37 meshes -> explicit 0.33 raster adapter -> egui_software_backend 0.0.2 CPU",
   "captures": [
     {
-      "capture_ms": 14,
+      "capture_ms": 20,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -10,7 +10,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 16,
+      "capture_ms": 19,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -18,7 +18,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 14,
+      "capture_ms": 15,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -26,7 +26,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 12,
+      "capture_ms": 16,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -34,7 +34,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 16,
+      "capture_ms": 17,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -42,7 +42,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 11,
+      "capture_ms": 13,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -50,7 +50,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 14,
+      "capture_ms": 18,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -58,7 +58,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 12,
+      "capture_ms": 17,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -66,7 +66,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 14,
+      "capture_ms": 19,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -74,7 +74,7 @@
       "width": 1160
     },
     {
-      "capture_ms": 13,
+      "capture_ms": 18,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
@@ -82,17 +82,33 @@
       "width": 1160
     },
     {
-      "capture_ms": 10,
+      "capture_ms": 19,
       "frames": 3,
       "height": 820,
       "scale": 1.0,
       "scene": "ai-working",
       "width": 1160
+    },
+    {
+      "capture_ms": 16,
+      "frames": 3,
+      "height": 820,
+      "scale": 1.0,
+      "scene": "folder-setup",
+      "width": 1160
+    },
+    {
+      "capture_ms": 20,
+      "frames": 3,
+      "height": 820,
+      "scale": 1.0,
+      "scene": "rule-details",
+      "width": 1160
     }
   ],
-  "frames": 33,
+  "frames": 39,
   "network_enabled": false,
-  "total_ms": 160,
+  "total_ms": 250,
   "window_created": false,
   "workers_started": false
 }

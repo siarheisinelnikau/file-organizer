@@ -2,7 +2,7 @@
 
 A Windows desktop organizer that uses AI Hub Universal or manual rules to create a reviewable filing plan, then records every applied action for recovery and undo.
 
-**Status:** local version 0.2.0, with isolated-fixture tests and real application-generated client-area screenshots. The screens below are rendered by the executable's CPU backend using demonstration data, without opening a window or accessing user folders. Native input, window lifecycle and idle/minimized load measurements remain pending. The planned [public repository](https://github.com/siarheisinelnikau/file-organizer) and releases have not been published by this session.
+**Status:** local version 0.2.1, with isolated-fixture tests and real application-generated client-area screenshots. The screens below are rendered by the executable's CPU backend using demonstration data, without opening a window or accessing user folders. Native input, window lifecycle and idle/minimized load measurements remain pending. The planned [public repository](https://github.com/siarheisinelnikau/file-organizer) and releases have not been published by this session.
 
 ## What it does
 
@@ -35,7 +35,11 @@ Real CPU-rendered client areas at 1160 × 820, 100% scale, with demonstration pa
 
 ![Manual-rule review](docs/screenshots/review.png)
 
-![Ordered rules and the visual editor](docs/screenshots/rules.png)
+![Ordered rules and the visual editor with a destination chooser](docs/screenshots/rules.png)
+
+![Advanced size controls with readable units](docs/screenshots/rule-details.png)
+
+![First folder setup with native chooser entry points](docs/screenshots/folder-setup.png)
 
 ![Updates and startup-check preference](docs/screenshots/updates.png)
 
@@ -60,28 +64,28 @@ cargo test --locked --all-targets -- --test-threads=2
 .\scripts\package.ps1
 ```
 
-Cargo is limited to two jobs and uses this repository's `target` directory. Add `--offline` to Cargo commands when the dependencies are already cached. Packaging builds without launching the application and produces `dist/FileOrganizer-v0.2.0.exe` and `dist/SHA256SUMS.txt`. The executable name has no architecture suffix because the initial distribution targets one architecture, Windows x64. Source builds for other platforms are not a supported release target.
+Cargo is limited to two jobs and uses this repository's `target` directory. Add `--offline` to Cargo commands when the dependencies are already cached. Packaging builds without launching the application and produces `dist/FileOrganizer-v0.2.1.exe` and `dist/SHA256SUMS.txt`. The executable name has no architecture suffix because the initial distribution targets one architecture, Windows x64. Source builds for other platforms are not a supported release target.
 
-Optional static inspection with Python's standard library (no executable launch): `python scripts/inspect_executable.py dist/FileOrganizer-v0.2.0.exe`. The application itself does not require Python. The UI uses CPU rasterization and a Win32 GDI presentation path. Native presentation and desktop responsiveness await manual validation.
+Optional static inspection with Python's standard library (no executable launch): `python scripts/inspect_executable.py dist/FileOrganizer-v0.2.1.exe`. The application itself does not require Python. The UI uses CPU rasterization and a Win32 GDI presentation path. Native presentation and desktop responsiveness await manual validation.
 
 For a first manual run, launch the packaged executable yourself. Start with a disposable folder and keep independent backups before using important files.
 
 ## AI Hub organization
 
-Choose source and allowed destination folders in **Settings → Folders**, then configure **Settings → AI Hub** with `http://127.0.0.1:8080/v1`, your hub token and an organized folder. Start a local model in AI Hub. On **Review**, select **AI Hub → Create AI plan**. Describe the desired organization instead of creating rules. Review reasons/destinations and select proposals before applying, or explicitly enable confidence-gated automation.
+Choose source and allowed destination folders in **Settings → Folders**, then configure **Settings → AI Hub** with `http://127.0.0.1:8080/v1`, your hub token and an organized folder. Use **Choose…** for the organized folder or reuse a saved destination. Picking that folder also grants the exact output scope, so a separate approval-list visit is unnecessary. Start a local model in AI Hub. On **Review**, select **AI Hub → Create AI plan**. Describe the desired organization instead of creating rules. Review reasons/destinations and select proposals before applying, or explicitly enable confidence-gated automation.
 
 `universal` routes to the most recently started running local model in your hub. It is not a separate model to download. Filename, relative subfolder and size are sent by default; optional short text excerpts are off by default. PDF/image/OCR analysis is not implemented. Cached decisions avoid repeat requests; **Reclassify** asks again after a model change. [Setup, data sharing, limits and verification](docs/AI_HUB.md). Live model integration remains unverified in this network-restricted development environment.
 
 ## Manual rules workflow
 
-1. Open **Settings → Folders**. Add existing absolute source folders and existing output roots. No real folders are preselected. Local drive paths are supported; symbolic links, junctions/reparse points and network paths are refused.
-2. Open **Rules**, add a template, and enter a destination inside an approved output root. Missing subfolders can be created during application. For Rename, the destination stays in the original source folder.
-3. Adjust conditions and the filename template. Conditions are ANDed. Extensions are comma separated, without a leading dot. `*` matches any characters, including separators in a subfolder condition; `?` matches one character. An empty subfolder pattern matches only the source root. Size is in bytes, and age uses modification time in minutes. Types are detected by extension, not content or EXIF.
+1. Open **Settings → Folders**. Use **Add source folder…** and **Add destination folder…** to open the Windows folder chooser. Existing rows have **Choose…** buttons, and **Paste a path instead** keeps manual entry available. No real folders are preselected. Local drive paths are supported; symbolic links, junctions/reparse points and network paths are refused.
+2. Open **Rules**, add a template, then use **Choose…** or **Use a saved destination**. Templates suggest a subfolder of the first saved destination. Choosing a new destination adds that exact folder to the approved list; pasted paths must be inside a saved root. Missing subfolders can be created during application. For Rename, the destination stays in the original source folder.
+3. Adjust conditions and the filename template. Conditions are ANDed. Extensions are comma separated, without a leading dot. `*` matches any characters, including separators in a subfolder condition; `?` matches one character. An empty subfolder pattern matches only the source root. Size controls offer bytes, KB, MB and GB (powers of 1024); age uses modification time in minutes. Common subfolder choices are available without writing a pattern. Types are detected by extension, not content or EXIF.
 4. Choose **Preview changes**. The first observation waits for the settling interval (default 3 seconds); a background second observation refreshes the plan. Preview does not change source/output files. Saving settings and scanning can write only application metadata.
 5. Select actions, then choose **Organize selected**. Each file is revalidated before execution. A late collision or changed source stops the batch and preserves the conflicting file. Generate a fresh preview to reconsider conflict names.
 6. Use **Activity → Undo** to restore a completed move/rename or remove an unchanged copy. Undo does not overwrite an occupied original path. If an unfinished operation exists, **Recover unfinished changes** attempts a conservative rollback first.
 
-**Watch for changes** keeps the plan updated without applying it. Use **Pause monitoring** in the sidebar to freeze the plan before selecting actions. For unattended filing while the application is open, review the rules, tick the explicit automatic-organization acknowledgement under **Settings → Automation**, then choose **Start automatic organization**. Edits pause monitoring and invalidate the displayed plan. Changes show a **Save changes** button. Previewing also saves the current configuration. Settings are saved during orderly close. Closing waits for the current file to reach a journaled boundary and cancels remaining batch items; it does not leave a background service running.
+**Watch for changes** keeps the plan updated without applying it. You can approve a selection directly while watching: the worker pauses monitoring and verifies that the reviewed plan is still current. **Pause monitoring** remains available separately. For unattended filing while the application is open, review the rules, tick the explicit automatic-organization acknowledgement under **Settings → Automation**, then choose **Start automatic organization**. Edits pause monitoring and invalidate the displayed plan. Changes show a **Save changes** button. Previewing also saves the current configuration. Settings are saved during orderly close. Closing waits for the current file to reach a journaled boundary and cancels remaining batch items; it does not leave a background service running.
 
 ## Safety and scope
 
@@ -109,7 +113,7 @@ Journal records created before metadata preservation remain readable. They conta
 
 The stable updater compares semantic versions, rejects drafts/prereleases and selects the canonical `FileOrganizer-vVERSION.exe` asset. **Download and install** requires explicit user action and a paused organizer. It displays progress, checks published size, SHA-256 (GitHub asset digest or `SHA256SUMS.txt`) and Windows x64 PE headers, finishes file work, exits, replaces the executable through a copied headless helper, then restarts. Configuration/journal data remain in LocalAppData. The install directory must be writable without elevation. A failed download leaves the installation unchanged; replacement has a rollback backup. Helper failures are saved in `update-error.txt` for the next launch. Interrupted helpers may leave staging/backup files for inspection.
 
-No release/network download or updater installation has been exercised in this development session. Before publishing, complete the [manual validation checklist](docs/VALIDATION.md) and use the [release notes draft](docs/RELEASE_NOTES_v0.2.0.md). Builds are not code-signed. SHA-256 verifies integrity against release metadata; it is not a publisher signature.
+No release/network download or updater installation has been exercised in this development session. Before publishing, complete the [manual validation checklist](docs/VALIDATION.md) and use the [release notes draft](docs/RELEASE_NOTES_v0.2.1.md). Builds are not code-signed. SHA-256 verifies integrity against release metadata; it is not a publisher signature.
 
 ## Development
 
@@ -121,6 +125,6 @@ License: [MIT](LICENSE).
 
 ## Static visual review without computer use
 
-The developer-only mode `FileOrganizer-v0.2.0.exe --capture ABSOLUTE_OUTPUT_DIRECTORY [WIDTH HEIGHT [SCALE]]` renders eleven actual screen fixtures through the same UI and CPU renderer as normal operation, writes PNGs plus `capture.json`, and exits. Use a fresh directory; existing files are never overwritten. The mode is parsed before normal startup: no window, file worker, update worker, database, filesystem watch or network request is started. Examples: default 1160 × 820; `960 680` for the minimum layout; `1200 850 1.25` for a 125% capture with a 960 × 680 logical client area. It has a 20-second internal batch deadline and three frames per screen; run it with a 30-second external process timeout.
+The developer-only mode `FileOrganizer-v0.2.1.exe --capture ABSOLUTE_OUTPUT_DIRECTORY [WIDTH HEIGHT [SCALE]]` renders thirteen actual screen fixtures through the same UI and CPU renderer as normal operation, writes PNGs plus `capture.json`, and exits. Use a fresh directory; existing files are never overwritten. The mode is parsed before normal startup: no window, file worker, update worker, database, filesystem watch or network request is started. Examples: default 1160 × 820; `960 680` for the minimum layout; `1200 850 1.25` for a 125% capture with a 960 × 680 logical client area. It has a 20-second internal batch deadline and three frames per screen; run it with a 30-second external process timeout.
 
 The normal desktop host uses `Wait`/`WaitUntil`, discards stale repaint requests, and keeps hidden/minimized data changes dirty for restoration without rendering them. An optional `--render-log ABSOLUTE_JSON_PATH` writes frame/wakeup counts and layout/raster/present totals after an ordinary run exits. This diagnostic is outside consumer settings. It is preparation for native measurement, not proof of settled idle behavior. See [design and rendering review](docs/DESIGN_REVIEW.md).

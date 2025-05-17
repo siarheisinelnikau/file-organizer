@@ -354,6 +354,7 @@ fn run(
             due = None;
             stability = Stability::new();
             emit(Event::Watching(false, false));
+            emit(Event::Busy(false));
             continue;
         }
         emit(Event::Busy(true));
@@ -563,6 +564,10 @@ fn run(
                                 .context("Invalid preview selection")
                         })
                         .collect::<Result<Vec<_>>>()?;
+                    watcher = None;
+                    automatic = false;
+                    due = None;
+                    emit(Event::Watching(false, false));
                     apply(&journal, &config, operations, emit, cancel)?;
                     current = Plan::default();
                     generation += 1;

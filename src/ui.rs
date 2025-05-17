@@ -2,6 +2,7 @@ use crate::design::*;
 use egui::{self, RichText};
 mod ai_view;
 mod capture;
+mod folders;
 mod views;
 pub use capture::capture_screens;
 use file_organizer::{
@@ -39,6 +40,7 @@ enum UpdateEvent {
 pub struct Organizer {
     directory: PathBuf,
     worker: Option<Worker>,
+    folders: folders::FolderPicker,
     updates: SyncSender<UpdateCommand>,
     update_events: Receiver<UpdateEvent>,
     config: Config,
@@ -113,6 +115,7 @@ impl Organizer {
         Self {
             directory,
             worker,
+            folders: folders::FolderPicker::new(live),
             updates,
             update_events,
             config: Config::default(),
@@ -171,6 +174,7 @@ impl Organizer {
     }
 
     pub fn poll(&mut self, ctx: &egui::Context) {
+        self.poll_folders();
         while let Some(event) = self.worker.as_ref().and_then(|w| w.events.try_recv().ok()) {
             match event {
                 Event::Loaded(config) => {
@@ -211,7 +215,6 @@ impl Organizer {
                 Event::Watching(watching, automatic) => {
                     self.watching = watching;
                     self.automatic = automatic;
-                    self.busy = false;
                 }
                 Event::Stopped => {
                     self.stopped = true;
@@ -309,13 +312,16 @@ impl Organizer {
         let before = self.config.clone();
         self.shell(ui);
         if before != self.config {
-            self.dirty = true;
-            self.auto_approved = false;
-            self.plan = Plan::default();
-            self.selected.clear();
-            if self.watching || self.ai_busy {
-                self.send(Command::Pause);
-            }
+            self.configuration_changed();
+        }
+    }
+    fn configuration_changed(&mut self) {
+        self.dirty = true;
+        self.auto_approved = false;
+        self.plan = Plan::default();
+        self.selected.clear();
+        if self.watching || self.ai_busy {
+            self.send(Command::Pause);
         }
     }
     pub fn close_requested(&mut self) {
