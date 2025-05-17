@@ -9,20 +9,22 @@ impl Organizer {
             "Universal uses the most recently started local model in AI Hub. Start that model in the hub first.",
         );
         section(ui, "Where files belong");
-        field(ui, "Organized folder", &mut self.config.ai.destination);
-        if let Some(first) = self
-            .config
-            .destination_roots
-            .iter()
-            .find(|p| !p.trim().is_empty())
-            .cloned()
-            && ui.small_button("Use first allowed destination").clicked()
-        {
-            self.config.ai.destination = first;
+        if super::folders::folder_field(
+            ui,
+            "ai-folder",
+            "Organized folder",
+            &mut self.config.ai.destination,
+            &self.config.destination_roots,
+        ) {
+            self.choose_folder(
+                ui.ctx(),
+                super::folders::Target::Ai,
+                self.config.ai.destination.clone(),
+            );
         }
         caption(
             ui,
-            "Choose a folder inside an allowed destination. AI creates a small category hierarchy here.",
+            "Choosing a folder also allows AI to create its categories there. Pasted paths must be inside a saved destination.",
         );
         ui.strong("How would you like files organized?");
         ui.add(

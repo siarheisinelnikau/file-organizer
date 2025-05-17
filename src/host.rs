@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use std::{
     num::NonZeroU32,
     path::PathBuf,
-    rc::Rc,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use winit::{
@@ -38,8 +38,8 @@ impl RenderGate {
 struct Host {
     ctx: egui::Context,
     app: Organizer,
-    window: Option<Rc<Window>>,
-    surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
+    window: Option<Arc<Window>>,
+    surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
     input: Option<egui_winit::State>,
     renderer: Renderer,
     gate: RenderGate,
@@ -209,7 +209,7 @@ impl ApplicationHandler<Wake> for Host {
                 use winit::platform::windows::WindowAttributesExtWindows;
                 attributes.with_taskbar_icon(Some(icon))
             };
-            let window = Rc::new(event_loop.create_window(attributes)?);
+            let window = Arc::new(event_loop.create_window(attributes)?);
             let context = softbuffer::Context::new(window.clone())
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             self.surface = Some(
@@ -224,6 +224,7 @@ impl ApplicationHandler<Wake> for Host {
                 window.theme(),
                 Some(8192),
             ));
+            self.app.set_dialog_parent(window.clone());
             self.window = Some(window);
             self.gate.invalidate();
             self.refresh_visibility();

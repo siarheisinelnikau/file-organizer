@@ -564,8 +564,6 @@ fn background_review_and_automatic_modes_operate_only_on_fixture_folders() {
             let Event::Plan { generation, .. } = event else {
                 unreachable!()
             };
-            worker.commands.send(Command::Pause).unwrap();
-            until(&worker, |e| matches!(e, Event::Watching(false, false)), 5);
             worker
                 .commands
                 .send(Command::Apply {
@@ -573,6 +571,7 @@ fn background_review_and_automatic_modes_operate_only_on_fixture_folders() {
                     indices: vec![0],
                 })
                 .unwrap();
+            until(&worker, |e| matches!(e, Event::Watching(false, false)), 5);
         }
         until(
             &worker,

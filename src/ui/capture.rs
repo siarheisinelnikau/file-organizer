@@ -42,6 +42,8 @@ pub fn capture_screens(args: &[String]) -> Result<()> {
         "ai-review",
         "ai-settings",
         "ai-working",
+        "folder-setup",
+        "rule-details",
     ] {
         ensure!(
             start.elapsed() < Duration::from_secs(20),
@@ -105,6 +107,11 @@ pub fn capture_screens(args: &[String]) -> Result<()> {
 
 impl Organizer {
     fn fixture(&mut self, scene: &str) {
+        if scene == "folder-setup" {
+            self.page = Page::Settings;
+            self.config.mode = PlanningMode::AiHub;
+            return;
+        }
         if scene == "welcome" {
             self.config.mode = PlanningMode::AiHub;
             return;
@@ -130,6 +137,10 @@ impl Organizer {
                 16_482_304,
             ),
         ];
+        if scene == "rule-details" {
+            self.config.rules[0].min_bytes = 20 * 1024 * 1024;
+            self.config.rules[0].max_bytes = 100 * 1024 * 1024;
+        }
         self.plan.scanned = 24;
         for (name, rule_name, folder, bytes) in facts {
             self.plan.operations.push(Operation {
@@ -184,7 +195,7 @@ impl Organizer {
         }
         self.selected = vec![true, true, false];
         self.page = match scene {
-            "rules" => Page::Rules,
+            "rules" | "rule-details" => Page::Rules,
             "settings" | "updates" | "automation" | "ai-settings" => Page::Settings,
             "activity" | "recovery" => Page::Activity,
             _ => Page::Review,

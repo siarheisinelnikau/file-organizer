@@ -1,3 +1,4 @@
+use super::folders::{self, Target};
 use super::*;
 use egui::{Color32, Frame, Margin, Stroke};
 
@@ -110,14 +111,19 @@ impl Organizer {
                             && primary(
                                 ui,
                                 "Save changes",
-                                !self.busy && !self.ai_busy && !self.stopped,
+                                !self.busy
+                                    && !self.ai_busy
+                                    && !self.folders.is_open()
+                                    && !self.stopped,
                             )
                             .clicked()
                         {
                             self.send(Command::Save(self.config.clone()));
                             self.dirty = false;
                         }
-                        if self.ai_busy {
+                        if self.folders.is_open() {
+                            caption(ui, "Folder chooser open");
+                        } else if self.ai_busy {
                             if ui.button("Cancel AI").clicked() {
                                 self.send(Command::CancelAi);
                             }
@@ -159,7 +165,11 @@ impl Organizer {
                     );
                 }
                 ui.add_enabled_ui(
-                    !self.busy && !self.ai_busy && !self.stopped && !self.shutting_down,
+                    !self.busy
+                        && !self.ai_busy
+                        && !self.folders.is_open()
+                        && !self.stopped
+                        && !self.shutting_down,
                     |ui| match self.page {
                         Page::Review => self.review_view(ui),
                         Page::Rules => self.rules_view(ui),
@@ -347,7 +357,7 @@ impl Organizer {
                     if primary(
                         ui,
                         format!("Organize {count} selected"),
-                        count > 0 && !self.dirty && !self.watching && self.pending == 0,
+                        count > 0 && !self.dirty && self.pending == 0,
                     )
                     .clicked()
                     {
@@ -367,7 +377,7 @@ impl Organizer {
             if self.watching {
                 caption(
                     ui,
-                    "Pause monitoring to keep this preview fixed and approve changes.",
+                    "Organizing a selection pauses monitoring and applies this reviewed plan.",
                 );
             }
             caption(
@@ -504,11 +514,9 @@ impl Organizer {
         ui.horizontal(|ui| {
             for label in ["Documents", "Photos", "Downloads", "Custom"] {
                 if ui.button(format!("+ {label}")).clicked() {
-                    self.config.rules.push(if label == "Custom" {
-                        Rule::default()
-                    } else {
-                        Rule::template(label)
-                    });
+                    self.config
+                        .rules
+                        .push(rule_template(label, &self.config.destination_roots));
                     self.selected_rule = self.config.rules.len() - 1;
                 }
             }
@@ -526,6 +534,8 @@ impl Organizer {
         }
         self.selected_rule = self.selected_rule.min(self.config.rules.len() - 1);
         let height = ui.available_height();
+        let saved = self.config.destination_roots.clone();
+        let mut browse_rule = None;
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(egui::vec2(228.0, height), egui::Layout::top_down(egui::Align::LEFT), |ui| {
                 caption(ui, "RULE ORDER");
@@ -557,17 +567,26 @@ impl Organizer {
                     caption(ui, "Separate with commas, for example pdf, docx. Leave blank for all types.");
                     field(ui, "Filename pattern", &mut rule.pattern);
                     ui.horizontal(|ui| { ui.label("Modified at least"); ui.add(egui::DragValue::new(&mut rule.min_age_minutes).range(0..=525600).suffix(" min ago")); });
-                    egui::CollapsingHeader::new("Size & source subfolders").show(ui, |ui| {
-                        field(ui, "Source subfolder pattern", &mut rule.folder_pattern);
+                    egui::CollapsingHeader::new("Size & source subfolders").default_open(rule.min_bytes > 0 || rule.max_bytes > 0 || rule.folder_pattern != "*").show(ui, |ui| {
+                        ui.strong("Source subfolders");
+                        egui::ComboBox::from_id_salt("folder-pattern-kind").selected_text(if rule.folder_pattern == "*" { "All subfolders" } else if rule.folder_pattern.is_empty() { "Source folder only" } else { "Custom pattern" }).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut rule.folder_pattern, "*".into(), "All subfolders");
+                            ui.selectable_value(&mut rule.folder_pattern, String::new(), "Source folder only");
+                            if ui.selectable_label(!rule.folder_pattern.is_empty() && rule.folder_pattern != "*", "Custom pattern").clicked() { rule.folder_pattern = "Projects/*".into(); }
+                        });
+                        if rule.folder_pattern != "*" && !rule.folder_pattern.is_empty() { field(ui, "Relative folder pattern", &mut rule.folder_pattern); }
                         caption(ui, "* includes all subfolders; blank matches the source folder itself.");
-                        ui.horizontal(|ui| { ui.label("Minimum bytes"); ui.add(egui::DragValue::new(&mut rule.min_bytes)); });
-                        ui.horizontal(|ui| { ui.label("Maximum bytes (0 = any)"); ui.add(egui::DragValue::new(&mut rule.max_bytes)); });
+                        size_field(ui, "Minimum size", (&rule.id, "min"), &mut rule.min_bytes);
+                        size_field(ui, "Maximum size", (&rule.id, "max"), &mut rule.max_bytes); caption(ui, "0 means no size limit.");
                     });
                     section(ui, "Put them in place");
                     ui.horizontal(|ui| {
                         for action in [Action::Move, Action::Copy, Action::Rename] { ui.selectable_value(&mut rule.action, action, format!("{action:?}")); }
                     });
-                    if rule.action != Action::Rename { field(ui, "Destination folder", &mut rule.destination); caption(ui, "Use a folder inside an allowed destination from Settings."); }
+                    if rule.action != Action::Rename {
+                        if folders::folder_field(ui, &rule.id, "Destination folder", &mut rule.destination, &saved) { browse_rule = Some((rule.id.clone(), rule.destination.clone())); }
+                        caption(ui, "Choosing a folder also allows this rule to put files there. Pasted paths must be inside a saved destination.");
+                    }
                     if rule.action == Action::Rename { rename_field(ui, rule); }
                     else { egui::CollapsingHeader::new("Rename files too (optional)").default_open(rule.name_template != "{name}").show(ui, |ui| rename_field(ui, rule)); }
                     section(ui, "If a filename already exists");
@@ -580,6 +599,9 @@ impl Organizer {
             });
             });
         });
+        if let Some((id, initial)) = browse_rule {
+            self.choose_folder(ui.ctx(), Target::Rule(id), initial);
+        }
     }
 
     fn activity_view(&mut self, ui: &mut egui::Ui) {
@@ -674,14 +696,15 @@ impl Organizer {
             }
         });
         ui.add_space(16.0);
+        let mut browse = None;
         egui::ScrollArea::vertical().id_salt("settings").show(ui, |ui| {
             surface(ui, |ui| match self.settings_tab {
                 0 => {
                     section(ui, "Folders to organize"); caption(ui, "Only these folders are scanned. Choose existing local folders.");
-                    roots(ui, "source", &mut self.config.source_roots);
+                    if let Some((index, initial)) = roots(ui, "source", &mut self.config.source_roots) { browse = Some((Target::Source(index), initial)); }
                     ui.checkbox(&mut self.config.recursive, "Include subfolders");
                     section(ui, "Allowed destinations"); caption(ui, "AI and rules may create subfolders here. Other locations stay out of reach.");
-                    roots(ui, "destination", &mut self.config.destination_roots);
+                    if let Some((index, initial)) = roots(ui, "destination", &mut self.config.destination_roots) { browse = Some((Target::Allowed(index), initial)); }
                     egui::CollapsingHeader::new("File readiness").show(ui, |ui| {
                         ui.horizontal(|ui| { ui.label("Wait for a file to stop changing"); ui.add(egui::DragValue::new(&mut self.config.settle_seconds).range(2..=60).suffix(" seconds")); });
                         caption(ui, "Downloads still in progress are skipped. Output folders are not scanned again.");
@@ -722,6 +745,9 @@ impl Organizer {
                 }
             });
         });
+        if let Some((target, initial)) = browse {
+            self.choose_folder(ui.ctx(), target, initial);
+        }
     }
 }
 
@@ -757,17 +783,21 @@ fn notice(ui: &mut egui::Ui, color: Color32, text: &str) {
     });
     ui.add_space(8.0);
 }
-fn roots(ui: &mut egui::Ui, kind: &str, paths: &mut Vec<String>) {
+fn roots(
+    ui: &mut egui::Ui,
+    kind: &str,
+    paths: &mut Vec<String>,
+) -> Option<(Option<usize>, String)> {
     let mut remove = None;
+    let mut browse = None;
     for (i, path) in paths.iter_mut().enumerate() {
         ui.push_id((kind, i), |ui| {
             ui.horizontal(|ui| {
-                let width = (ui.available_width() - 94.0).max(120.0);
-                ui.add(
-                    egui::TextEdit::singleline(path)
-                        .hint_text("C:\\Your folder")
-                        .desired_width(width),
-                );
+                let width = (ui.available_width() - 192.0).max(100.0);
+                folders::edit_path(ui, path, width);
+                if ui.button("Choose…").clicked() {
+                    browse = Some((Some(i), path.clone()));
+                }
                 if ui.button("Remove").clicked() {
                     remove = Some(i);
                 }
@@ -777,9 +807,91 @@ fn roots(ui: &mut egui::Ui, kind: &str, paths: &mut Vec<String>) {
     if let Some(i) = remove {
         paths.remove(i);
     }
-    if ui.button(format!("+ Add {kind} folder")).clicked() {
-        paths.push(String::new());
+    ui.horizontal_wrapped(|ui| {
+        if ui.button(format!("+ Add {kind} folder…")).clicked() {
+            browse = Some((
+                None,
+                paths
+                    .iter()
+                    .find(|p| !p.trim().is_empty())
+                    .cloned()
+                    .unwrap_or_default(),
+            ));
+        }
+        if ui.small_button("Paste a path instead").clicked() {
+            paths.push(String::new());
+        }
+    });
+    browse
+}
+fn rule_template(kind: &str, destinations: &[String]) -> Rule {
+    let mut rule = if kind == "Custom" {
+        Rule::default()
+    } else {
+        Rule::template(kind)
+    };
+    if let Some(root) = destinations.iter().find(|p| !p.trim().is_empty()) {
+        let directory = match kind {
+            "Documents" => "Documents",
+            "Photos" => "Photos",
+            "Downloads" => "Archives",
+            _ => "",
+        };
+        rule.destination = std::path::Path::new(root)
+            .join(directory)
+            .to_string_lossy()
+            .into_owned();
     }
+    rule
+}
+fn size_field(
+    ui: &mut egui::Ui,
+    label: &str,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    bytes: &mut u64,
+) {
+    let id = ui.make_persistent_id(id);
+    let mut unit = ui
+        .data_mut(|data| data.get_temp::<usize>(id))
+        .unwrap_or({
+            if *bytes == 0 {
+                2
+            } else if *bytes < 1024 {
+                0
+            } else if *bytes < 1024 * 1024 {
+                1
+            } else if *bytes < 1024 * 1024 * 1024 {
+                2
+            } else {
+                3
+            }
+        })
+        .min(3);
+    let multiplier = 1024_u64.pow(unit as u32) as f64;
+    let mut value = *bytes as f64 / multiplier;
+    ui.horizontal(|ui| {
+        ui.label(label);
+        if ui
+            .add(
+                egui::DragValue::new(&mut value)
+                    .range(0.0..=u64::MAX as f64 / multiplier)
+                    .max_decimals(3)
+                    .speed(1.0),
+            )
+            .changed()
+        {
+            *bytes = (value * multiplier).round() as u64;
+        }
+        egui::ComboBox::from_id_salt(id)
+            .width(68.0)
+            .selected_text(["bytes", "KB", "MB", "GB"][unit])
+            .show_ui(ui, |ui| {
+                for (index, name) in ["bytes", "KB", "MB", "GB"].into_iter().enumerate() {
+                    ui.selectable_value(&mut unit, index, name);
+                }
+            });
+    });
+    ui.data_mut(|data| data.insert_temp(id, unit));
 }
 fn size_label(bytes: u64) -> String {
     if bytes >= 1_048_576 {
@@ -816,6 +928,22 @@ fn setup_target(config: &Config) -> Option<Page> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn templates_propose_subfolders_of_the_saved_destination() {
+        let root = r"C:\Fixture\Sorted".to_owned();
+        for (kind, child) in [
+            ("Documents", "Documents"),
+            ("Photos", "Photos"),
+            ("Downloads", "Archives"),
+        ] {
+            let rule = rule_template(kind, std::slice::from_ref(&root));
+            assert_eq!(
+                std::path::PathBuf::from(rule.destination),
+                std::path::Path::new(&root).join(child)
+            );
+        }
+        assert!(rule_template("Documents", &[]).destination.is_empty());
+    }
     #[test]
     fn rename_only_workflow_does_not_require_an_output_folder() {
         let mut config = Config {

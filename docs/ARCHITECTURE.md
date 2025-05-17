@@ -13,6 +13,7 @@
 - `updater.rs`: release parsing, integrity checks and the portable helper protocol.
 - `ui.rs` and `ui/views.rs`: application state, the Review-first interface, rule editor, activity and grouped settings. No directory scans/network requests in frame callbacks.
 - `branding.rs` and `build.rs`: checked-in native icon artwork, explicit window/taskbar assignment and compiled Windows icon/version resources.
+- `ui/folders.rs`: single-flight native folder chooser, injected test responses, local-path validation, exact output approvals and stale-result rejection.
 - `design.rs`: shared light palette, typography, spacing and primary actions.
 - `renderer.rs`: the CPU raster adapter shared by the desktop host and headless captures.
 - `host.rs`: winit events, native input/clipboard/IME, software GDI presentation, repaint deadlines and shutdown.
@@ -62,4 +63,12 @@ The installed app checks the canonical public GitHub stable release API without 
 
 ## Limits
 
-Approved roots and path checks prevent accidental out-of-scope operations, not deliberate directory-swap attacks by another local process. Network/UNC paths are unsupported. NTFS alternate streams, ACLs, ownership, extended attributes and storage/cloud features are not copied. Supported basic flags are Read-only, Hidden, System, Archive, Temporary, Not content indexed and Normal (no flags). Metadata writes require attribute-write permission, and timestamp resolution depends on the filesystem. Snapshot suppression uses normalized path, byte size and modification timestamp, not file identity: an external tool replacing bytes while preserving both size and timestamp may require an explicit timestamp change to become eligible. A prepared plan is not an immutable byte-content snapshot; execution reads the current exclusively locked bytes after size/mtime checks. Unsupported/locked files stop the current batch. The app has no service/tray/autostart integration and no journal-retention UI in 0.2.0.
+Approved roots and path checks prevent accidental out-of-scope operations, not deliberate directory-swap attacks by another local process. Network/UNC paths are unsupported. NTFS alternate streams, ACLs, ownership, extended attributes and storage/cloud features are not copied. Supported basic flags are Read-only, Hidden, System, Archive, Temporary, Not content indexed and Normal (no flags). Metadata writes require attribute-write permission, and timestamp resolution depends on the filesystem. Snapshot suppression uses normalized path, byte size and modification timestamp, not file identity: an external tool replacing bytes while preserving both size and timestamp may require an explicit timestamp change to become eligible. A prepared plan is not an immutable byte-content snapshot; execution reads the current exclusively locked bytes after size/mtime checks. Unsupported/locked files stop the current batch. The app has no service/tray/autostart integration and no journal-retention UI in 0.2.1.
+
+## Folder selection
+
+Native selection starts only from an explicit Choose/Add folder action. The Windows dialog runs on one bounded, temporary thread, uses the application window as its parent and retains an Arc to that window until it closes. The normal filesystem actor and event loop remain responsive; opening a chooser pauses monitoring. No polling timer or continuously animated status is added. Capture mode disables the native picker.
+
+The picker inspects starting-directory ancestors and validates the selected existing local root off the paint thread, rejecting unsupported paths/reparse points through the existing filesystem boundary. The UI accepts the result only if its configuration snapshot is still current; Cancel and stale results do not edit settings. Accepted changes invalidate the plan and automatic acknowledgement. Selected AI/rule destinations add only the exact selected root when no existing approval covers it. Saved menus reuse existing approvals; pasted paths do not silently expand scope.
+
+Explicit Apply now pauses monitoring in the serial actor after checking the plan generation and before executing the selected operations. A Watching status event no longer clears the UI busy flag while a copy is running; the corresponding Busy event marks the safe end of command processing. Pausing alone emits its own completion event.

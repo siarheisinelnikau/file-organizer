@@ -5,10 +5,10 @@ AI mode replaces manual matching rules with model-proposed categories. File exec
 ## Set up
 
 1. Start your existing AI Hub and a local text model. `universal` routes to the most recently started running local model; it is a route, not a downloaded model. FileOrganizer does not start or install models.
-2. In **Settings → Folders**, add existing source folders and allowed destinations.
+2. In **Settings → Folders**, use **Add source folder…** and **Add destination folder…** to pick existing folders. The first allowed destination initializes an empty organized-folder setting.
 3. In **Settings → AI Hub**, expand **Hub connection & access token**, enter the base URL, normally `http://127.0.0.1:8080/v1`, and save your hub access token if authentication is enabled. **Test connection** calls `/v1/models` only. A reachable hub can still have no model ready.
-4. Choose an **Organized folder** inside an allowed destination and describe your desired filing scheme. For example: “Group by subject, then project. Keep invoices by business and personal use. Prefer a small number of stable folders.”
-5. On **Review**, select **AI Hub**, then **Create AI plan**. After the file-readiness interval, the model proposes subfolders with explanations and confidence estimates. Select individual proposals or **Select recommended**, then organize the selection. Nothing is preselected in a new plan.
+4. Use **Choose…** or **Use a saved destination** for the **Organized folder** and describe your desired filing scheme. A newly chosen folder is also added as an exact allowed destination if necessary; no separate manual permission-list entry is needed. Pasted paths must still be inside an allowed root. For example: “Group by subject, then project. Keep invoices by business and personal use. Prefer a small number of stable folders.”
+5. On **Review**, select **AI Hub**, then **Create AI plan**. After the file-readiness interval, the model proposes subfolders with explanations and confidence estimates. Select individual proposals or **Select recommended**, then organize the selection. Organizing automatically pauses active monitoring and rejects stale previews. Nothing is preselected in a new plan.
 6. Optionally enable automatic organization under **Settings → Automation** after reviewing the setup. Only proposals at or above your confidence threshold are applied; lower estimates remain for review. Each launch starts paused.
 
 Manual rules remain available as an alternative on Review. Existing installations keep their saved rule mode; an empty installation defaults to AI mode. The modes do not combine actions for the same file.
