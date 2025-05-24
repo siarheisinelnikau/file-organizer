@@ -109,6 +109,9 @@ impl Host {
                 && w.is_minimized() != Some(true)
                 && s.width > 0
                 && s.height > 0;
+            if !self.gate.drawable {
+                self.app.pause_guide();
+            }
         }
     }
     fn frame(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
@@ -201,13 +204,23 @@ impl ApplicationHandler<Wake> for Host {
             let icon = crate::branding::window_icon()?;
             let attributes = Window::default_attributes()
                 .with_title("FileOrganizer")
+                .with_theme(Some(winit::window::Theme::Light))
                 .with_window_icon(Some(icon.clone()))
                 .with_inner_size(winit::dpi::LogicalSize::new(1160.0, 820.0))
                 .with_min_inner_size(winit::dpi::LogicalSize::new(960.0, 680.0));
             #[cfg(windows)]
             let attributes = {
-                use winit::platform::windows::WindowAttributesExtWindows;
-                attributes.with_taskbar_icon(Some(icon))
+                use winit::platform::windows::{Color, WindowAttributesExtWindows};
+                let background = crate::design::CANVAS;
+                let text = crate::design::INK;
+                attributes
+                    .with_taskbar_icon(Some(icon))
+                    .with_title_background_color(Some(Color::from_rgb(
+                        background.r(),
+                        background.g(),
+                        background.b(),
+                    )))
+                    .with_title_text_color(Color::from_rgb(text.r(), text.g(), text.b()))
             };
             let window = Arc::new(event_loop.create_window(attributes)?);
             let context = softbuffer::Context::new(window.clone())

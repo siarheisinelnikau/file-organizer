@@ -44,6 +44,12 @@ pub fn capture_screens(args: &[String]) -> Result<()> {
         "ai-working",
         "folder-setup",
         "rule-details",
+        "guide-ai",
+        "guide-rules",
+        "guide-move",
+        "guide-undo",
+        "guide-copy",
+        "guide-copy-undo",
     ] {
         ensure!(
             start.elapsed() < Duration::from_secs(20),
@@ -107,6 +113,25 @@ pub fn capture_screens(args: &[String]) -> Result<()> {
 
 impl Organizer {
     fn fixture(&mut self, scene: &str) {
+        if scene.starts_with("guide-") {
+            self.page = Page::Guide;
+            self.guide.mode = if scene == "guide-rules" {
+                PlanningMode::Rules
+            } else {
+                PlanningMode::AiHub
+            };
+            if scene.starts_with("guide-copy") {
+                self.guide.action = Action::Copy;
+            }
+            self.guide.position = match scene {
+                "guide-copy" => 0.79,
+                "guide-copy-undo" => 0.92,
+                "guide-move" => 0.66,
+                "guide-undo" => 0.92,
+                _ => 0.45,
+            };
+            return;
+        }
         if scene == "folder-setup" {
             self.page = Page::Settings;
             self.config.mode = PlanningMode::AiHub;

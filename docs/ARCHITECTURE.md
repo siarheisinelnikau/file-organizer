@@ -14,6 +14,7 @@
 - `ui.rs` and `ui/views.rs`: application state, the Review-first interface, rule editor, activity and grouped settings. No directory scans/network requests in frame callbacks.
 - `branding.rs` and `build.rs`: checked-in native icon artwork, explicit window/taskbar assignment and compiled Windows icon/version resources.
 - `ui/folders.rs`: single-flight native folder chooser, injected test responses, local-path validation, exact output approvals and stale-result rejection.
+- `ui/guide.rs`: cached fictional example plans, pure timeline/transfer state, finite playback and a before/after diagram. It has no executor or model client.
 - `design.rs`: shared light palette, typography, spacing and primary actions.
 - `renderer.rs`: the CPU raster adapter shared by the desktop host and headless captures.
 - `host.rs`: winit events, native input/clipboard/IME, software GDI presentation, repaint deadlines and shutdown.
@@ -63,7 +64,7 @@ The installed app checks the canonical public GitHub stable release API without 
 
 ## Limits
 
-Approved roots and path checks prevent accidental out-of-scope operations, not deliberate directory-swap attacks by another local process. Network/UNC paths are unsupported. NTFS alternate streams, ACLs, ownership, extended attributes and storage/cloud features are not copied. Supported basic flags are Read-only, Hidden, System, Archive, Temporary, Not content indexed and Normal (no flags). Metadata writes require attribute-write permission, and timestamp resolution depends on the filesystem. Snapshot suppression uses normalized path, byte size and modification timestamp, not file identity: an external tool replacing bytes while preserving both size and timestamp may require an explicit timestamp change to become eligible. A prepared plan is not an immutable byte-content snapshot; execution reads the current exclusively locked bytes after size/mtime checks. Unsupported/locked files stop the current batch. The app has no service/tray/autostart integration and no journal-retention UI in 0.2.1.
+Approved roots and path checks prevent accidental out-of-scope operations, not deliberate directory-swap attacks by another local process. Network/UNC paths are unsupported. NTFS alternate streams, ACLs, ownership, extended attributes and storage/cloud features are not copied. Supported basic flags are Read-only, Hidden, System, Archive, Temporary, Not content indexed and Normal (no flags). Metadata writes require attribute-write permission, and timestamp resolution depends on the filesystem. Snapshot suppression uses normalized path, byte size and modification timestamp, not file identity: an external tool replacing bytes while preserving both size and timestamp may require an explicit timestamp change to become eligible. A prepared plan is not an immutable byte-content snapshot; execution reads the current exclusively locked bytes after size/mtime checks. Unsupported/locked files stop the current batch. The app has no service/tray/autostart integration and no journal-retention UI in 0.3.0.
 
 ## Folder selection
 
@@ -72,3 +73,9 @@ Native selection starts only from an explicit Choose/Add folder action. The Wind
 The picker inspects starting-directory ancestors and validates the selected existing local root off the paint thread, rejecting unsupported paths/reparse points through the existing filesystem boundary. The UI accepts the result only if its configuration snapshot is still current; Cancel and stale results do not edit settings. Accepted changes invalidate the plan and automatic acknowledgement. Selected AI/rule destinations add only the exact selected root when no existing approval covers it. Saved menus reuse existing approvals; pasted paths do not silently expand scope.
 
 Explicit Apply now pauses monitoring in the serial actor after checking the plan generation and before executing the selected operations. A Watching status event no longer clears the UI busy flag while a copy is running; the corresponding Busy event marks the safe end of command processing. Pausing alone emits its own completion event.
+
+## Walkthrough and native frame
+
+The guide has its own settings and cached example, independent of the persisted Config. It uses engine::plan for rules and ai::plan_decisions/recommended for deterministic AI illustrations. Scrubbing derives the scene directly from normalized time, without replaying operations. Playback is user-initiated, finite and pauses at its end, on navigation/close, and when Host refresh_visibility finds the window non-drawable. Only active playback schedules a 33 ms repaint. Hidden rendering remains gated by the existing host. Native runtime measurements remain pending.
+
+The native host requests Theme::Light when creating the window, matching the explicitly light egui theme. On Windows it also sets title background/text through the pinned winit Windows attributes using CANVAS and INK; those DWM color attributes are supported by Windows 11. Older systems use the light-theme request. Colors are configured once at creation, without per-frame DWM calls or system-wide theme changes. Headless client-area captures cannot verify non-client caption appearance.

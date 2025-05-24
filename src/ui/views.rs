@@ -50,6 +50,9 @@ impl Organizer {
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     caption(ui, format!("Version {}", updater::VERSION));
+                    if ui.link("How it works").clicked() {
+                        self.page = Page::Guide;
+                    }
                     if self.available_update.is_some() && ui.link("Update available").clicked() {
                         self.page = Page::Settings;
                         self.settings_tab = 3;
@@ -84,6 +87,10 @@ impl Organizer {
             .frame(Frame::new().fill(CANVAS).inner_margin(Margin::same(26)))
             .show(root, |ui| {
                 let (title, subtitle) = match self.page {
+                    Page::Guide => (
+                        "How it works",
+                        "Explore the example, then try it with your own folders.",
+                    ),
                     Page::Review => (
                         "Review your files",
                         "Preview the changes, then choose what to organize.",
@@ -108,6 +115,7 @@ impl Organizer {
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if self.dirty
+                            && self.page != Page::Guide
                             && primary(
                                 ui,
                                 "Save changes",
@@ -165,12 +173,18 @@ impl Organizer {
                     );
                 }
                 ui.add_enabled_ui(
-                    !self.busy
-                        && !self.ai_busy
-                        && !self.folders.is_open()
-                        && !self.stopped
-                        && !self.shutting_down,
+                    !self.shutting_down
+                        && (self.page == Page::Guide
+                            || (!self.busy
+                                && !self.ai_busy
+                                && !self.folders.is_open()
+                                && !self.stopped)),
                     |ui| match self.page {
+                        Page::Guide => {
+                            egui::ScrollArea::vertical()
+                                .id_salt("guide")
+                                .show(ui, |ui| self.guide.show(ui));
+                        }
                         Page::Review => self.review_view(ui),
                         Page::Rules => self.rules_view(ui),
                         Page::Activity => self.activity_view(ui),
@@ -184,6 +198,9 @@ impl Organizer {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.config.mode, PlanningMode::AiHub, "AI Hub");
             ui.selectable_value(&mut self.config.mode, PlanningMode::Rules, "Manual rules");
+            if ui.button("How it works").clicked() {
+                self.page = Page::Guide;
+            }
         });
         ui.add_space(12.0);
         let ai = self.config.mode == PlanningMode::AiHub;

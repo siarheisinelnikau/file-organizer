@@ -19,15 +19,15 @@ Results:
 
 - `cargo fmt --all --check`: passed.
 - `cargo clippy --offline --locked --all-targets -- -D warnings`: passed, no code diagnostics. Cargo reported environment-level incremental-cache hard-link warnings and used copies instead.
-- `cargo test --offline --locked --all-targets -- --test-threads=2`: **50 passed, 0 failed, 1 ignored**: 30 filesystem/planning/update regressions, 10 AI integration regressions and 10 branding/folder-selection/rendering/workflow regressions. The ignored HTTP transport fixture is described below. No test creates a native window.
+- `cargo test --offline --locked --all-targets -- --test-threads=2`: **54 passed, 0 failed, 1 ignored**: 30 filesystem/planning/update regressions, 10 AI integration regressions and 14 branding/folder-selection/guide/rendering/workflow regressions. The ignored HTTP transport fixture is described below. No test creates a native window.
 - `git diff --check`: passed.
 - `scripts/package.ps1` with `CARGO_NET_OFFLINE=true`: passed. Optimized `x86_64-pc-windows-msvc` build completed with two jobs and cached dependencies.
-- `python scripts/inspect_executable.py dist/FileOrganizer-v0.2.1.exe`: passed. AMD64, PE32+, Windows GUI subsystem; import table contains Windows system DLLs and no external MSVC runtime DLL. This checks binary structure, not actual graphics/desktop behavior.
+- `python scripts/inspect_executable.py dist/FileOrganizer-v0.3.0.exe`: passed. AMD64, PE32+, Windows GUI subsystem; import table contains Windows system DLLs and no external MSVC runtime DLL. This checks binary structure, not actual graphics/desktop behavior.
 
-Packaged artifact after the folder-setup usability fixes: `dist/FileOrganizer-v0.2.1.exe`, **12,196,864 bytes**. `dist/SHA256SUMS.txt` matches the independently calculated inspection digest:
+Packaged artifact after the walkthrough and native caption configuration changes: `dist/FileOrganizer-v0.3.0.exe`, **12,267,008 bytes**. `dist/SHA256SUMS.txt` matches the independently calculated inspection digest:
 
 ```text
-8dddc4a1e27a218266d2b2ecfe9735820f099b4916787a2901e21b66305b6673  FileOrganizer-v0.2.1.exe
+21db593ef307b40a62fc7f7a0f2a95935afcb00c9bec6737013832fe19cedaf8  FileOrganizer-v0.3.0.exe
 ```
 
 The normal GUI entry point was not launched. The release EXE was invoked only through its bounded `--capture` branch; all captures exited successfully. Distribution output is ignored by Git and remains available locally. Dependency/font notice audit remains required before publication.
@@ -40,11 +40,19 @@ Fixture location matters in this managed sandbox: the redirected system Temp fol
 
 ## Version and native icon verification
 
-- Windows resource compilation embeds FileVersion/ProductVersion 0.2.1.0 and OriginalFilename `FileOrganizer-v0.2.1.exe`. Independent Windows FileVersionInfo reading reports the expected product/name/version strings.
-- `inspect_executable.py --expect-version 0.2.1 --icon assets/FileOrganizer.ico` verified every embedded icon payload against the checked-in ICO: 16, 20, 24, 32, 40, 48, 64, 128 and 256 pixels. Actual decoded frames were inspected on light/dark backgrounds. The native icon constructor passed without creating a window.
+- Windows resource compilation embeds FileVersion/ProductVersion 0.3.0.0 and OriginalFilename `FileOrganizer-v0.3.0.exe`. Independent Windows FileVersionInfo reading reports the expected product/name/version strings.
+- `inspect_executable.py --expect-version 0.3.0 --icon assets/FileOrganizer.ico` verified every embedded icon payload against the checked-in ICO: 16, 20, 24, 32, 40, 48, 64, 128 and 256 pixels. Actual decoded frames were inspected on light/dark backgrounds. The native icon constructor passed without creating a window.
 - `python scripts/test_versioning.py`: two isolated regressions passed, exercising patch/minor/major increments, dependency preservation and invalid-lockfile refusal before manifest writes.
 - `scripts/test_package_policy.ps1`: artificial-byte fixtures confirmed identical repeat packaging succeeds, changed same-version bytes and version regression fail, a new patch is accepted, and the existing artifact remains intact.
 - No Explorer icon-cache reset, shortcut/pinning change or native GUI launch was performed. Windows taskbar/window icon appearance still requires a future desktop observation; the missing resources and missing assignments are repaired and checked at the code/resource boundaries.
+
+## Walkthrough and caption verification
+
+Four guide regressions passed: rule/AI example plans and recommendation thresholds, virtual-time progression/automatic completion and pause, selected-file transfer/undo state including unapplied proposals, and isolated UI rendering without Config edits plus navigation/hide pause hooks. Example plans are cached until settings change; playback alone schedules a 33 ms repaint, and the host's drawable guard pauses it when hidden/minimized. Rendering remains the same CPU/GDI path. Normal native idle/hidden/animation measurements remain unverified.
+
+The real executable's finite capture branch renders nineteen fixtures, including guide AI/rule review, move, move undo, copy and copy undo. Standard, minimum and 125% captures were decoded/inspected. Layout fixes widened the scrub track, kept the compact walkthrough within the minimum viewport, and removed an unsupported arrow glyph from a caption. This establishes static client-area evidence; the guide's virtual-clock tests separately cover progression and stopping.
+
+The supplied user image showed nearly black caption text on a dark native title bar. Source inspection found a system-themed native frame paired with the explicitly light client area. Window creation now requests Light and sets Windows caption background/text from CANVAS/INK through the pinned winit API. Windows 11 supports those explicit color attributes; older systems retain the light-theme request. These are per-window settings, not a system theme change. **The native caption fix has not been visually verified**, because no native window was launched and headless captures omit non-client chrome.
 
 ## Folder-setup usability verification
 
@@ -62,8 +70,8 @@ An attempted bounded localhost transport fixture failed before connection with W
 
 ## Design and renderer verification
 
-- Reviewed real executable-generated Review, Rules, Folders, Automation, Updates, Activity, Welcome, Recovery, AI Review, AI Settings, AI Working, empty Folder Setup and expanded Rule Details client areas.
-- Captures used 1160 × 820 at 100%, 960 × 680 at 100%, and 1200 × 850 at 125% (960 × 680 logical units), with fixed demonstration paths/data. Each invocation uses 39 finite frames, a 20-second internal deadline and a 30-second external subprocess timeout.
+- Reviewed real executable-generated Review, Rules, Folders, Automation, Updates, Activity, Welcome, Recovery, AI Review, AI Settings, AI Working, empty Folder Setup, expanded Rule Details and six guide client-area states.
+- Captures used 1160 × 820 at 100%, 960 × 680 at 100%, and 1200 × 850 at 125% (960 × 680 logical units), with fixed demonstration paths/data. Each invocation uses 57 finite frames, a 20-second internal deadline and a 30-second external subprocess timeout.
 - Final release runs returned exit code 0. PNGs were decoded and inspected. The standard capture is embedded in README; `docs/screenshots/capture.json` identifies the backend, dimensions, frame count, complete-capture timings and absence of windows/workers/network.
 - Corrected horizontal-layout inheritance in the rule editor, inactive theme styles, preview width, header action space, narrow layout and overflow. Long form sections scroll at the minimum size; long file/path labels truncate with full-value tooltips.
 - Added regressions for hidden dirty-state retention, ordered partial texture updates/geometry clipping, and the rename-only workflow without an output root. An initial synthetic raw renderer fixture aborted; the final regression uses an initialized egui frame and a 128 × 128 surface, within the guarded renderer size limits.
@@ -74,7 +82,7 @@ An attempted bounded localhost transport fixture failed before connection with W
 
 - On disposable files, connect to AI Hub with a user-supplied token and a running local model. Verify `/v1/models`, Universal routing, JSON compatibility, semantic category quality, model switching with Reclassify, HTTP status/timeout/redirect handling and credential save/remove/address scoping. Test connection is not proof that a model is ready.
 
-- Run the packaged executable on a Windows x64 desktop; check all four screens, scrolling, editing, selection, resize, 100/150/200% DPI, close during a large copy, and second-instance behavior.
+- Run the packaged executable on a Windows x64 desktop; check Review, Rules, Activity, Settings and How it works, scrolling, editing, selection, resize, 100/150/200% DPI, close during a large copy, and second-instance behavior.
 - Native OS chrome/dialogs, keyboard traversal, clipboard, IME and actual window activation still need interactive validation. Real client-area screenshots are now in `docs/screenshots/` and README.
 - Measure release idle/active/minimized CPU, frame/input responsiveness and memory with representative folder sizes. Verify that idle rendering sleeps. No performance measurements are claimed yet.
 - Exercise move/copy/rename, collision choices, open downloads/writers, watcher bursts, age thresholds, pause/resume and manual undo on disposable NTFS volumes, including different source/output drives.

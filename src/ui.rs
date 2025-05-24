@@ -3,6 +3,7 @@ use egui::{self, RichText};
 mod ai_view;
 mod capture;
 mod folders;
+mod guide;
 mod views;
 pub use capture::capture_screens;
 use file_organizer::{
@@ -19,6 +20,7 @@ use std::{
 
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
+    Guide,
     Rules,
     Review,
     Activity,
@@ -43,6 +45,7 @@ pub struct Organizer {
     folders: folders::FolderPicker,
     updates: SyncSender<UpdateCommand>,
     update_events: Receiver<UpdateEvent>,
+    guide: guide::Guide,
     config: Config,
     loaded: bool,
     dirty: bool,
@@ -118,6 +121,7 @@ impl Organizer {
             folders: folders::FolderPicker::new(live),
             updates,
             update_events,
+            guide: guide::Guide::default(),
             config: Config::default(),
             loaded: !live,
             dirty: false,
@@ -311,6 +315,9 @@ impl Organizer {
     pub fn paint(&mut self, ui: &mut egui::Ui) {
         let before = self.config.clone();
         self.shell(ui);
+        if self.page != Page::Guide {
+            self.pause_guide();
+        }
         if before != self.config {
             self.configuration_changed();
         }
@@ -324,7 +331,11 @@ impl Organizer {
             self.send(Command::Pause);
         }
     }
+    pub fn pause_guide(&mut self) {
+        self.guide.pause();
+    }
     pub fn close_requested(&mut self) {
+        self.pause_guide();
         self.begin_shutdown();
     }
     pub fn can_close(&self) -> bool {
