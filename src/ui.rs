@@ -12,11 +12,7 @@ use file_organizer::{
     updater::{self, Downloaded, Update},
     worker::{Command, Event, Worker},
 };
-use std::{
-    path::PathBuf,
-    sync::mpsc::{self, Receiver, SyncSender},
-    thread,
-};
+use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
@@ -29,22 +25,14 @@ enum Page {
 
 enum UpdateCommand {
     Check,
-    Download(Update),
-    Install(Downloaded),
-}
-enum UpdateEvent {
-    Checked(Result<Option<Update>, String>),
-    Progress(f32),
-    Downloaded(Result<Downloaded, String>),
-    Installed(Result<(), String>),
+    Download(Box<Update>),
 }
 
 pub struct Organizer {
     directory: PathBuf,
     worker: Option<Worker>,
     folders: folders::FolderPicker,
-    updates: SyncSender<UpdateCommand>,
-    update_events: Receiver<UpdateEvent>,
+    updates: Option<updater::Service>,
     guide: guide::Guide,
     config: Config,
     loaded: bool,
@@ -68,7 +56,7 @@ pub struct Organizer {
     pending: usize,
     messages: Vec<(bool, String)>,
     update_status: String,
-    available_update: Option<Update>,
+    available_update: Option<Box<Update>>,
     update_busy: bool,
     download_progress: f32,
     downloaded: Option<Downloaded>,
@@ -84,43 +72,19 @@ impl Organizer {
         let repaint = ctx.clone();
         let worker =
             live.then(|| Worker::start(directory.clone(), move || repaint.request_repaint()));
-        let (updates, commands) = mpsc::sync_channel(2);
-        let (events, update_events) = mpsc::sync_channel(32);
-        let update_directory = directory.join("updates");
-        let ctx = ctx.clone();
-        if live {
-            thread::spawn(move || {
-                while let Ok(command) = commands.recv() {
-                    let event = match command {
-                        UpdateCommand::Check => {
-                            UpdateEvent::Checked(updater::check().map_err(|e| format!("{e:#}")))
-                        }
-                        UpdateCommand::Download(update) => UpdateEvent::Downloaded(
-                            updater::download(&update, &update_directory, |received, total| {
-                                let _ = events.try_send(UpdateEvent::Progress(
-                                    received as f32 / total as f32,
-                                ));
-                                ctx.request_repaint();
-                            })
-                            .map_err(|e| format!("{e:#}")),
-                        ),
-                        UpdateCommand::Install(download) => UpdateEvent::Installed(
-                            updater::launch_helper(&download).map_err(|e| format!("{e:#}")),
-                        ),
-                    };
-                    if events.send(event).is_err() {
-                        break;
-                    }
-                    ctx.request_repaint();
-                }
-            });
-        }
+        let repaint = ctx.clone();
+        let updates = if live {
+            updater::config()
+                .and_then(|config| updater::Service::new(config, move || repaint.request_repaint()))
+        } else {
+            Err("Update checks are disabled in preview mode.".into())
+        };
+        let update_error = updates.as_ref().err().cloned();
         Self {
             directory,
             worker,
             folders: folders::FolderPicker::new(live),
-            updates,
-            update_events,
+            updates: updates.ok(),
             guide: guide::Guide::default(),
             config: Config::default(),
             loaded: !live,
@@ -143,7 +107,7 @@ impl Organizer {
             history: Vec::new(),
             pending: 0,
             messages: Vec::new(),
-            update_status: "Not checked yet".into(),
+            update_status: update_error.unwrap_or_else(|| "Not checked yet".into()),
             available_update: None,
             update_busy: false,
             download_progress: 0.0,
@@ -171,9 +135,14 @@ impl Organizer {
     }
 
     fn update_command(&mut self, command: UpdateCommand) {
-        match self.updates.try_send(command) {
+        let Some(service) = &self.updates else { return };
+        let result = match command {
+            UpdateCommand::Check => service.check(),
+            UpdateCommand::Download(update) => service.download(update),
+        };
+        match result {
             Ok(()) => self.update_busy = true,
-            Err(e) => self.update_status = format!("Update worker unavailable: {e}"),
+            Err(error) => self.update_status = error,
         }
     }
 
@@ -229,9 +198,13 @@ impl Organizer {
                 }
             }
         }
-        while let Ok(event) = self.update_events.try_recv() {
+        while let Some(event) = self
+            .updates
+            .as_ref()
+            .and_then(|service| service.events.try_recv().ok())
+        {
             match event {
-                UpdateEvent::Checked(result) => {
+                updater::Event::Checked(result) => {
                     self.update_busy = false;
                     match result {
                         Ok(Some(update)) => {
@@ -245,37 +218,23 @@ impl Organizer {
                         Err(error) => self.update_status = error,
                     }
                 }
-                UpdateEvent::Progress(fraction) => self.download_progress = fraction,
-                UpdateEvent::Downloaded(result) => {
+                updater::Event::Progress { received, total } => {
+                    self.download_progress = if total > 0 {
+                        received as f32 / total as f32
+                    } else {
+                        0.0
+                    }
+                }
+                updater::Event::Ready(result) => {
                     self.update_busy = false;
                     match result {
                         Ok(download) => {
-                            self.update_status = format!(
-                                "Version {} verified. Finishing current work before restart…",
-                                download.version
-                            );
+                            self.update_status =
+                                "Update verified. Finishing current work before restart…".into();
                             self.downloaded = Some(download);
                             self.begin_shutdown();
                         }
                         Err(e) => self.update_status = e,
-                    }
-                }
-                UpdateEvent::Installed(result) => {
-                    self.update_busy = false;
-                    match result {
-                        Ok(()) => self.may_close = true,
-                        Err(e) => {
-                            self.update_status = e;
-                            self.shutting_down = false;
-                            self.downloaded = None;
-                            self.install_sent = false;
-                            let repaint = ctx.clone();
-                            self.worker = Some(Worker::start(self.directory.clone(), move || {
-                                repaint.request_repaint()
-                            }));
-                            self.loaded = false;
-                            self.stopped = false;
-                        }
                     }
                 }
             }
@@ -283,10 +242,23 @@ impl Organizer {
         if self.shutting_down
             && self.stopped
             && !self.install_sent
-            && let Some(download) = self.downloaded.clone()
+            && let Some(mut download) = self.downloaded.take()
         {
             self.install_sent = true;
-            self.update_command(UpdateCommand::Install(download));
+            match updater::launch_helper(&mut download) {
+                Ok(()) => self.may_close = true,
+                Err(error) => {
+                    self.update_status = error;
+                    self.shutting_down = false;
+                    self.install_sent = false;
+                    let repaint = ctx.clone();
+                    self.worker = Some(Worker::start(self.directory.clone(), move || {
+                        repaint.request_repaint()
+                    }));
+                    self.loaded = false;
+                    self.stopped = false;
+                }
+            }
         }
         if self.may_close {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);

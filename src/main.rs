@@ -30,9 +30,10 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let directory = data_directory()?;
-    if args.get(1).is_some_and(|s| s == "--cleanup-update") {
-        let _ = file_organizer::updater::clean_after_update(&args, &directory.join("updates"));
-    }
+    let cleanup = args
+        .get(1)
+        .is_some_and(|s| s == "--cleanup-update")
+        .then(|| args.clone());
     let render_log = if args.get(1).is_some_and(|s| s == "--render-log") && args.len() == 3 {
         Some(PathBuf::from(&args[2]))
     } else {
@@ -42,5 +43,5 @@ fn main() -> anyhow::Result<()> {
         );
         None
     };
-    host::run(directory, render_log)
+    host::run(directory, render_log, cleanup)
 }

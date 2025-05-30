@@ -42,16 +42,21 @@ struct Host {
     surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
     input: Option<egui_winit::State>,
     renderer: Renderer,
+    pixels: Vec<u32>,
+    pixel_size: (u32, u32),
     gate: RenderGate,
     deadline: Option<Instant>,
     error: Option<anyhow::Error>,
     metrics: Metrics,
     occluded: bool,
+    cleanup: Option<(Vec<String>, PathBuf)>,
 }
 
 #[derive(Default, serde::Serialize)]
 struct Metrics {
     frames: u64,
+    presents: u64,
+    cached_presents: u64,
     worker_or_repaint_wakes: u64,
     hidden_redraws_skipped: u64,
     layout_us: u128,
@@ -60,13 +65,18 @@ struct Metrics {
     max_frame_us: u128,
 }
 
-pub fn run(directory: PathBuf, render_log: Option<PathBuf>) -> Result<()> {
+pub fn run(
+    directory: PathBuf,
+    render_log: Option<PathBuf>,
+    cleanup: Option<Vec<String>>,
+) -> Result<()> {
     let event_loop = EventLoop::<Wake>::with_user_event().build()?;
     let ctx = egui::Context::default();
     let proxy = event_loop.create_proxy();
     ctx.set_request_repaint_callback(move |info| {
         let _ = proxy.send_event(Wake(info.delay, info.current_cumulative_pass_nr));
     });
+    let cleanup = cleanup.map(|args| (args, directory.join("updates")));
     let app = Organizer::new(&ctx, directory, true);
     let mut host = Host {
         ctx,
@@ -75,11 +85,14 @@ pub fn run(directory: PathBuf, render_log: Option<PathBuf>) -> Result<()> {
         surface: None,
         input: None,
         renderer: Renderer::new(),
+        pixels: Vec::new(),
+        pixel_size: (0, 0),
         gate: RenderGate::default(),
         deadline: None,
         error: None,
         metrics: Metrics::default(),
         occluded: false,
+        cleanup,
     };
     event_loop.run_app(&mut host)?;
     if let Some(path) = render_log {
@@ -119,50 +132,68 @@ impl Host {
         if !self.gate.drawable {
             self.metrics.hidden_redraws_skipped += 1;
         }
-        if !self.gate.take_frame() {
+        if !self.gate.drawable {
             return Ok(());
         }
-        let frame_start = Instant::now();
-        let window = self.window.as_ref().context("Missing window")?;
-        let input = self.input.as_mut().context("Missing input integration")?;
-        let info = input
-            .egui_input_mut()
-            .viewports
-            .entry(egui::ViewportId::ROOT)
-            .or_default();
-        egui_winit::update_viewport_info(info, &self.ctx, window, false);
-        let raw = input.take_egui_input(window);
-        let output = self.ctx.run_ui(raw, |ui| self.app.paint(ui));
-        self.metrics.layout_us += frame_start.elapsed().as_micros();
-        input.handle_platform_output_with_event_loop(
-            window,
-            event_loop,
-            output.platform_output.clone(),
-        );
-        let viewport = output
-            .viewport_output
-            .get(&egui::ViewportId::ROOT)
-            .context("Missing root viewport")?;
-        self.deadline = Instant::now().checked_add(viewport.repaint_delay);
-        let mut actions = Vec::new();
-        egui_winit::process_viewport_commands(
-            &self.ctx,
-            input
+        let window_size = self.window.as_ref().context("Missing window")?.inner_size();
+        let rebuild =
+            self.gate.take_frame() || self.pixel_size != (window_size.width, window_size.height);
+        if rebuild {
+            let frame_start = Instant::now();
+            let window = self.window.as_ref().context("Missing window")?;
+            let input = self.input.as_mut().context("Missing input integration")?;
+            let info = input
                 .egui_input_mut()
                 .viewports
                 .entry(egui::ViewportId::ROOT)
-                .or_default(),
-            viewport.commands.clone(),
-            window,
-            &mut actions,
-        );
-        let size = window.inner_size();
-        let raster_start = Instant::now();
-        let pixels = self
-            .renderer
-            .draw(&self.ctx, output, size.width, size.height)?;
-        self.metrics.raster_us += raster_start.elapsed().as_micros();
+                .or_default();
+            egui_winit::update_viewport_info(info, &self.ctx, window, false);
+            let raw = input.take_egui_input(window);
+            let output = self.ctx.run_ui(raw, |ui| self.app.paint(ui));
+            self.metrics.layout_us += frame_start.elapsed().as_micros();
+            input.handle_platform_output_with_event_loop(
+                window,
+                event_loop,
+                output.platform_output.clone(),
+            );
+            let viewport = output
+                .viewport_output
+                .get(&egui::ViewportId::ROOT)
+                .context("Missing root viewport")?;
+            self.deadline = Instant::now().checked_add(viewport.repaint_delay);
+            let mut actions = Vec::new();
+            egui_winit::process_viewport_commands(
+                &self.ctx,
+                input
+                    .egui_input_mut()
+                    .viewports
+                    .entry(egui::ViewportId::ROOT)
+                    .or_default(),
+                viewport.commands.clone(),
+                window,
+                &mut actions,
+            );
+            let size = window.inner_size();
+            let raster_start = Instant::now();
+            let pixels = self
+                .renderer
+                .draw(&self.ctx, output, size.width, size.height)?;
+            self.metrics.raster_us += raster_start.elapsed().as_micros();
+            self.pixels = pixels
+                .into_iter()
+                .map(|[r, g, b, _]| u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b))
+                .collect();
+            self.pixel_size = (size.width, size.height);
+            self.metrics.frames += 1;
+            self.metrics.max_frame_us = self
+                .metrics
+                .max_frame_us
+                .max(frame_start.elapsed().as_micros());
+        } else {
+            self.metrics.cached_presents += 1;
+        }
         let present_start = Instant::now();
+        let size = self.window.as_ref().context("Missing window")?.inner_size();
         let surface = self.surface.as_mut().context("Missing software surface")?;
         surface
             .resize(
@@ -173,18 +204,15 @@ impl Host {
         let mut buffer = surface
             .buffer_mut()
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        for (out, [r, g, b, _]) in buffer.iter_mut().zip(pixels) {
-            *out = u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b);
-        }
+        buffer.copy_from_slice(&self.pixels);
         buffer
             .present()
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         self.metrics.present_us += present_start.elapsed().as_micros();
-        self.metrics.frames += 1;
-        self.metrics.max_frame_us = self
-            .metrics
-            .max_frame_us
-            .max(frame_start.elapsed().as_micros());
+        self.metrics.presents += 1;
+        if let Some((args, directory)) = self.cleanup.take() {
+            let _ = file_organizer::updater::clean_after_update(&args, &directory);
+        }
         Ok(())
     }
     fn poll(&mut self, event_loop: &ActiveEventLoop) {
@@ -268,8 +296,7 @@ impl ApplicationHandler<Wake> for Host {
             return;
         }
         if matches!(event, WindowEvent::RedrawRequested) {
-            // OS expose events may require presenting again; hidden/minimized events cannot paint.
-            self.gate.invalidate();
+            // OS expose events can present the retained bitmap; only invalidation rebuilds UI.
             if let Err(error) = self.frame(event_loop) {
                 self.error = Some(error);
                 self.gate.drawable = false;
@@ -281,6 +308,12 @@ impl ApplicationHandler<Wake> for Host {
         if let (Some(window), Some(input)) = (&self.window, &mut self.input)
             && input.on_window_event(window, &event).repaint
         {
+            self.gate.invalidate();
+        }
+        if matches!(
+            event,
+            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
+        ) {
             self.gate.invalidate();
         }
         if let WindowEvent::Occluded(occluded) = event {

@@ -4,6 +4,18 @@ Latest verification: 2026-11-01 (Europe/Minsk).
 
 Computer use, desktop capture, normal GUI interaction, real user-folder watches, updater download/installation, external AI APIs, system changes and remote Git operations have not been performed. The design follow-up authorizes isolated application-generated visual review: the executable's finite headless branch renders only fixture UI and exits, without creating a native window, opening the user database or starting file/update workers. Compilation and these images do not certify native interaction or idle performance.
 
+## Shared updater and rendering audit, 0.3.1
+
+The updater transport, release parsing, checksum/PE validation and replacement now come from the sibling Rust Auto Updator core; local code configures FileOrganizer and accepts legacy cleanup arguments. The helper path is parsed before settings/database startup. Cleanup starts after the first successful presentation. The GUI continues to own persisted startup preference, save/shutdown and explicit installation intent.
+
+The CPU rasterizer and pinned softbuffer 0.4.8 Win32 backend were inspected: rasterization writes a CPU bitmap; presentation uses the backend's GDI DIB and BitBlt. Unchanged expose events now reuse the last bitmap. Input, worker results and useful deadlines invalidate the scene. Hidden/minimized/occluded windows keep their dirty state without rendering; a regression covers hidden invalidation and the first restored frame.
+
+`inspect_executable.py` checks the final optimized PE's embedded frames against all nine source ICO entries and its Windows file/product version. `verify_icons.py` loads/draws the actual embedded resource using Windows LoadImageW and DrawIconEx, without launching a window. Its light/dark output was visually inspected. [Native resource proof](icon-resource-proof.png). This proves resource loading and legibility, not OS taskbar/Explorer interaction. FileOrganizer has no tray.
+
+Current verification: `cargo fmt --all --check`, `cargo clippy --offline --locked --all-targets -j 1 -- -D warnings`, and optimized x64 compilation passed. All 52 tests passed (14 binary + 10 AI + 28 core); the existing network-blocked loopback fixture remains the one ignored test. Versioning and package-policy regressions passed. The final PE is AMD64, GUI subsystem 2, Windows version 0.3.1.0, 12,436,992 bytes; all nine icon payloads match the source.
+
+The exact optimized 0.3.1 executable's finite offscreen mode completed 19 fixture screens / 57 intentional frames in 743 ms and exited 0. Its metadata confirms `window_created=false`, `workers_started=false`, and `network_enabled=false`. Updates and review were inspected at full size; all resulting scenes were reviewed in contact sheets. README screenshot files were refreshed from that actual output. This confirms the CPU rendering path and static UI, not normal native idle/hidden behavior. Existing GUI screenshots remain accurate because the consumer layout is unchanged. Online update installation and actual idle/hidden frame measurements are not established by compilation, gate tests or the icon proof; normal window diagnostics remain a separate acceptance item.
+
 ## Automated checks
 
 Verified with Rust 1.96.1 / Cargo 1.96.1 on Windows x64 using cached dependencies. Commands run from this repository with the local target directory, at most two Cargo jobs and two test threads:

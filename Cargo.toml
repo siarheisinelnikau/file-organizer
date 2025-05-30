@@ -1,6 +1,6 @@
 [package]
 name = "file-organizer"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
@@ -9,6 +9,7 @@ repository = "https://github.com/siarheisinelnikau/file-organizer"
 
 [dependencies]
 anyhow = "1.0"
+rust-auto-updator = { path = "../rust-auto-updator/crates/rust-auto-updator" }
 egui = { version = "=0.37.0", default-features = false, features = ["default_fonts"] }
 egui-winit = { version = "=0.37.0", default-features = false, features = ["clipboard", "links"] }
 egui_software_backend = { version = "=0.0.2", default-features = false, features = ["std"] }
@@ -19,7 +20,6 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 fs2 = "0.4"
 notify = "8.2"
 rusqlite = { version = "0.37", features = ["bundled"] }
-semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"

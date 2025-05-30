@@ -2,7 +2,7 @@ use file_organizer::{
     engine, filesystem as disk,
     journal::{Entry, Journal},
     model::*,
-    updater::{self, Asset, Release},
+    updater,
     worker::{Command, Event, Stability, Worker},
 };
 use std::{
@@ -429,76 +429,25 @@ fn configuration_persists_opt_out_and_order() {
     assert_eq!(loaded.rules[1].name, "Photos");
 }
 
-fn release(tag: &str) -> Release {
-    let name = format!("FileOrganizer-{}.exe", tag);
-    Release {
-        tag_name: tag.into(),
-        draft: false,
-        prerelease: false,
-        assets: vec![Asset {
-            browser_download_url: format!("{}/releases/download/{tag}/{name}", updater::REPOSITORY),
-            name,
-            size: 1024,
-            digest: None,
-        }],
-    }
-}
-
 #[test]
-fn updater_selects_stable_versions_numerically_and_rejects_foreign_assets() {
-    assert!(
-        updater::select(release("v0.10.0"), "0.9.0")
-            .unwrap()
-            .is_some()
-    );
-    assert!(
-        updater::select(release("v0.1.0"), "0.1.0")
-            .unwrap()
-            .is_none()
-    );
-    let mut draft = release("v1.0.0");
-    draft.draft = true;
-    assert!(updater::select(draft, "0.1.0").unwrap().is_none());
-    let mut pre = release("v1.0.0-beta.1");
-    pre.prerelease = true;
-    assert!(updater::select(pre, "0.1.0").unwrap().is_none());
-    let mut foreign = release("v1.0.0");
-    foreign.assets[0].browser_download_url = "https://example.com/app.exe".into();
-    assert!(updater::select(foreign, "0.1.0").is_err());
-    let mut wrong = release("v1.0.0");
-    wrong.assets[0].name = "FileOrganizer-v1.0.0-arm64.exe".into();
-    assert!(updater::select(wrong, "0.1.0").is_err());
-}
-
-#[test]
-fn checksum_parser_requires_an_exact_unambiguous_entry() {
-    let hash = "a".repeat(64);
-    let name = "FileOrganizer-v1.0.0.exe";
-    assert_eq!(
-        updater::checksum(&format!("{hash}  {name}\n"), name).unwrap(),
-        hash
-    );
-    assert!(updater::checksum(&format!("{hash}  {name}.other\n"), name).is_err());
-    assert!(updater::checksum(&format!("{hash}  {name}\n{hash}  {name}"), name).is_err());
-}
-
-#[test]
-fn updater_rejects_truncated_and_wrong_architecture_executables() {
-    let f = Fixture::new();
-    let path = f.output.join("header-fixture.exe");
-    fs::write(&path, b"MZ").unwrap();
-    assert!(updater::verify_executable(&path).is_err());
-    let mut bytes = vec![0; 128];
-    bytes[..2].copy_from_slice(b"MZ");
-    bytes[60..64].copy_from_slice(&64u32.to_le_bytes());
-    bytes[64..68].copy_from_slice(b"PE\0\0");
-    bytes[68..70].copy_from_slice(&0x8664u16.to_le_bytes());
-    bytes[88..90].copy_from_slice(&0x20bu16.to_le_bytes());
-    fs::write(&path, &bytes).unwrap();
-    assert!(updater::verify_executable(&path).is_ok());
-    bytes[68..70].copy_from_slice(&0xaa64u16.to_le_bytes());
-    fs::write(&path, &bytes).unwrap();
-    assert!(updater::verify_executable(&path).is_err());
+fn shared_updater_binds_product_version_and_canonical_assets() {
+    let mut config = updater::config().unwrap();
+    config.current_version = "0.9.0".parse().unwrap();
+    let release = serde_json::json!({
+        "tag_name": "v0.10.0", "draft": false, "prerelease": false,
+        "html_url": format!("{}/releases/tag/v0.10.0", updater::REPOSITORY),
+        "assets": [{"name":"FileOrganizer-v0.10.0.exe", "size":2048,
+            "browser_download_url": format!("{}/releases/download/v0.10.0/FileOrganizer-v0.10.0.exe", updater::REPOSITORY),
+            "digest": format!("sha256:{}", "a".repeat(64))}]
+    });
+    let selected = rust_auto_updator::parse_release(&release.to_string(), &config)
+        .unwrap()
+        .unwrap();
+    assert_eq!(selected.version.to_string(), "0.10.0");
+    assert_eq!(selected.executable_name(), "FileOrganizer-v0.10.0.exe");
+    let mut foreign = release;
+    foreign["assets"][0]["browser_download_url"] = "https://example.com/app.exe".into();
+    assert!(rust_auto_updator::parse_release(&foreign.to_string(), &config).is_err());
 }
 
 #[cfg(windows)]
