@@ -24,6 +24,9 @@ try {
     Copy-Item -LiteralPath $builtAsset -Destination $asset
     $digest = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText((Join-Path $distribution 'SHA256SUMS.txt'), "$digest  $assetName`n", [Text.UTF8Encoding]::new($false))
+    $licenseDirectory = Join-Path $distribution 'licenses'
+    New-Item -ItemType Directory -Path $licenseDirectory -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $projectDirectory '../rust-auto-updator/LICENSE') -Destination (Join-Path $licenseDirectory 'RustAutoUpdator-MIT.txt') -Force
     Write-Output "Packaged $asset"
     Write-Output "SHA256: $digest"
 } finally {
