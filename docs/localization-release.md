@@ -1,0 +1,34 @@
+# FileOrganizer v0.4.1
+
+This is the first published release of FileOrganizer.
+
+## Initial capabilities
+
+- Create reviewable filing plans with ordered manual rules or optional AI Hub Universal categorization and filename suggestions.
+- Move, copy or rename selected files with conflict handling, metadata preservation, a SQLite activity journal and per-operation undo.
+- Use debounced folder monitoring with explicit automation consent; application launches begin paused and existing files are not silently overwritten.
+
+## Localization and appearance
+
+Choose your language and a comfortable light or dark appearance without restarting FileOrganizer or interrupting a reviewed organization plan.
+
+## Added
+
+- English, Russian, French, German, Spanish and Italian interfaces. Settings lists native language names; navigation, review, rules, AI preferences, the walkthrough, folder chooser titles, update actions and standard status/recovery messages are localized.
+- Persistent Light / Dark buttons above the settings tabs, with coherent surfaces, text, inputs, selections, warnings, errors, walkthrough graphics and CPU-canvas background.
+
+## Improved
+
+- Language and theme save automatically while preserving selected operations, monitoring and unsaved rule edits. Existing settings migrate with English/light defaults and retain folders, rules, recovery history and startup-update opt-out.
+- Messages preserve formatting placeholders, file paths, versions and model names. User content, saved names and detailed platform/network diagnostics retain their original content.
+- Native window decorations follow the selected theme instead of fixed light caption colors. No periodic render timer was added.
+
+## Fixed
+
+- Closing immediately after rapid language/theme changes preserves the latest choice even if older save acknowledgements remain queued. Closing before settings finish loading preserves the existing configuration.
+
+## Verification and platform
+
+Windows x64 standalone asset: `FileOrganizer-v0.4.1.exe`, with SHA-256 checksums. Settings and undo history stay in the existing LocalAppData directory. Startup-update opt-out, manual checking and explicit in-app installation remain available; no update installation was executed during development.
+
+Formatting, Clippy, isolated fixture tests and optimized packaging are recorded in `docs/VALIDATION.md`. No application window or capture was launched for this change. Updated localization/dark-theme screenshots, actual input and visible/hidden rendering measurements remain pending; README screenshots are labeled real 0.3.1 English/light evidence.
