@@ -2,6 +2,20 @@
 
 Latest verification: 2026-11-01 (Europe/Minsk).
 
+## Final localization deliverable, 0.4.1
+
+Final review found a rapid-toggle shutdown race: an older preference-save acknowledgement could make the UI consider its current choice saved while a different queued value had reached the database. Orderly shutdown now always saves the latest loaded UI snapshot. Closing before loading completes does not save startup defaults. Two isolated headless regressions reproduce both cases against the real worker/database without creating a window.
+
+The final version is 0.4.1. The already-packaged local 0.4.0 artifact was retained unchanged, in accordance with the package version guard. The 340-message six-language catalog, immediate language/theme controls, migration, watcher/plan preservation and rendering source review below also apply to 0.4.1.
+
+Final checks passed: formatting, Clippy with warnings denied, versioning/package-policy regressions, and optimized Windows x64 compilation. The complete fixture suite passed **59 tests, 0 failed, 1 previously ignored loopback-HTTP test**: 2 library, 17 binary/UI/rendering, 10 AI and 30 core tests. The final PE inspection passed AMD64/Windows GUI, FileVersion/ProductVersion **0.4.1.0**, no external MSVC runtime imports, and exact matching of all nine embedded icon payloads. The packaged executable is **12,597,248 bytes**.
+
+```text
+04e98d2e8f834e036976ca84b605f8f840ecadaca5365f44ab45a1e394eb0d72  FileOrganizer-v0.4.1.exe
+```
+
+No normal application launch or capture was performed. Updated language/dark-theme main/settings screenshots, native input/titlebar behavior, and visible-idle/hidden/restore CPU/frame/present measurements remain unverified under the repository's current no-launch restriction. Historical README screenshots remain explicitly labeled 0.3.1 English/light evidence. No updater installation, real user-folder operation or live model request was run.
+
 ## Localization and appearance, 0.4.0
 
 The interface now has an embedded catalog of 340 authored messages in Russian, French, German, Spanish and Italian with complete English keys/fallback. Settings exposes native language names and persistent Light / Dark controls above its tabs. The catalog audit includes navigation, review, rules, AI preferences/connection errors, standard worker/recovery/update statuses, the walkthrough and native folder-chooser titles. Proper names, paths, saved rule names, model/user content, developer-only capture messages and detailed operating-system/network diagnostics keep their original text. Catalog tests reject missing/empty translations, duplicate keys and changed formatting placeholders.

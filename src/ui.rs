@@ -23,6 +23,109 @@ fn action_name(action: Action) -> &'static str {
     }
 }
 
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+    use file_organizer::journal::Journal;
+    use std::time::{Duration, Instant};
+
+    fn wait(app: &Organizer, predicate: impl Fn(&Event) -> bool) -> Event {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let event = app
+                .worker
+                .as_ref()
+                .unwrap()
+                .events
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap();
+            if let Event::Error(error) = &event {
+                panic!("Fixture worker failed: {error}");
+            }
+            if predicate(&event) {
+                return event;
+            }
+        }
+    }
+
+    #[test]
+    fn shutdown_preserves_latest_display_choice_even_with_stale_save_acknowledgements() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-fixtures");
+        std::fs::create_dir_all(&fixtures).unwrap();
+        let temp = tempfile::tempdir_in(fixtures).unwrap();
+        let desired = Config {
+            language: Language::Italian,
+            theme: Theme::Dark,
+            startup_updates: false,
+            ..Config::default()
+        };
+        Journal::open(&temp.path().join("organizer.db"))
+            .unwrap()
+            .save_config(&desired)
+            .unwrap();
+        let ctx = egui::Context::default();
+        let mut app = Organizer::new(&ctx, temp.path().to_owned(), false);
+        app.worker = Some(Worker::start(temp.path().to_owned(), || {}));
+        let Event::Loaded(config) = wait(&app, |event| matches!(event, Event::Loaded(_))) else {
+            unreachable!()
+        };
+        app.config = config;
+        app.loaded = true;
+        app.dirty = false;
+        // An older queued B save can complete after the UI has returned to A and
+        // consumed an earlier A acknowledgement. Closing must still save current A.
+        app.worker
+            .as_ref()
+            .unwrap()
+            .commands
+            .send(Command::Appearance {
+                language: Language::French,
+                theme: Theme::Light,
+            })
+            .unwrap();
+        wait(&app, |event| matches!(event, Event::AppearanceSaved { .. }));
+        app.close_requested();
+        wait(&app, |event| matches!(event, Event::Stopped));
+        assert_eq!(
+            Journal::open(&temp.path().join("organizer.db"))
+                .unwrap()
+                .config()
+                .unwrap(),
+            desired
+        );
+    }
+
+    #[test]
+    fn closing_before_settings_load_does_not_save_startup_defaults() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-fixtures");
+        std::fs::create_dir_all(&fixtures).unwrap();
+        let temp = tempfile::tempdir_in(fixtures).unwrap();
+        let saved = Config {
+            language: Language::Russian,
+            theme: Theme::Dark,
+            startup_updates: false,
+            ..Config::default()
+        };
+        Journal::open(&temp.path().join("organizer.db"))
+            .unwrap()
+            .save_config(&saved)
+            .unwrap();
+        let ctx = egui::Context::default();
+        let mut app = Organizer::new(&ctx, temp.path().to_owned(), false);
+        app.worker = Some(Worker::start(temp.path().to_owned(), || {}));
+        app.loaded = false;
+        app.close_requested();
+        wait(&app, |event| matches!(event, Event::Stopped));
+        assert_eq!(
+            Journal::open(&temp.path().join("organizer.db"))
+                .unwrap()
+                .config()
+                .unwrap(),
+            saved
+        );
+    }
+}
+
 /// Authored status messages keep canonical English values in state so switching languages
 /// also updates an already displayed result. Technical diagnostic payloads stay intact.
 pub(crate) fn translate_status(ui: &egui::Ui, status: &str) -> String {
@@ -90,7 +193,6 @@ pub struct Organizer {
     config: Config,
     loaded: bool,
     dirty: bool,
-    appearance_dirty: bool,
     busy: bool,
     ai_busy: bool,
     ai_done: usize,
@@ -143,7 +245,6 @@ impl Organizer {
             config: Config::default(),
             loaded: !live,
             dirty: false,
-            appearance_dirty: false,
             busy: false,
             ai_busy: false,
             ai_done: 0,
@@ -215,11 +316,7 @@ impl Organizer {
                         self.update_command(UpdateCommand::Check);
                     }
                 }
-                Event::AppearanceSaved { language, theme } => {
-                    if self.config.language == language && self.config.theme == theme {
-                        self.appearance_dirty = false;
-                    }
-                }
+                Event::AppearanceSaved { .. } => {}
                 Event::Plan { generation, plan } => {
                     self.generation = generation;
                     self.selected = vec![false; plan.operations.len()];
@@ -339,7 +436,10 @@ impl Organizer {
             return;
         }
         if let Some(worker) = &self.worker {
-            worker.shutdown((self.dirty || self.appearance_dirty).then(|| self.config.clone()));
+            // Persist the latest loaded UI snapshot even if rapid preference changes
+            // still have older save acknowledgements queued. Never replace settings
+            // with startup defaults when loading has not finished.
+            worker.shutdown(self.loaded.then(|| self.config.clone()));
         } else {
             self.may_close = true;
         }
@@ -362,7 +462,6 @@ impl Organizer {
                 workflow.language = before.language;
                 workflow.theme = before.theme;
                 // Appearance does not invalidate a reviewed plan or pause monitoring.
-                self.appearance_dirty = true;
                 self.send(Command::Appearance {
                     language: self.config.language,
                     theme: self.config.theme,

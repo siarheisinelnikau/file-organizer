@@ -2,7 +2,7 @@
 
 A Windows desktop organizer that uses AI Hub Universal or manual rules to create a reviewable filing plan, then records every applied action for recovery and undo.
 
-**Version 0.4.0:** six interface languages and persistent light/dark appearance, alongside reviewable AI/manual organization and recoverable undo. [Project and releases](https://github.com/siarheisinelnikau/file-organizer). The existing screenshots below are real application-generated client areas from version 0.3.1; they show the established English/light workflow and do not include the new language/theme controls. Updated localization and dark-theme screenshots, native input, window lifecycle and idle/minimized load measurements remain pending. No normal application window was opened for this change.
+**Version 0.4.1:** six interface languages and persistent light/dark appearance, alongside reviewable AI/manual organization and recoverable undo. [Project and releases](https://github.com/siarheisinelnikau/file-organizer). The existing screenshots below are real application-generated client areas from version 0.3.1; they show the established English/light workflow and do not include the new language/theme controls. Updated localization and dark-theme screenshots, native input, window lifecycle and idle/minimized load measurements remain pending. No normal application window was opened for this change.
 
 ## What it does
 
@@ -34,7 +34,7 @@ Use **How it works** on Review or in the sidebar to explore example files and th
 
 ## Application screens
 
-Real version 0.3.1 CPU-rendered client areas at 1160 × 820, 100% scale, with demonstration paths and files. These historical English/light images do not show the new display preferences or dark palette. They do not show OS chrome or certify native input/performance. Updated version 0.4.0 main/settings screenshots could not be obtained under this repository's current no-launch restriction.
+Real version 0.3.1 CPU-rendered client areas at 1160 × 820, 100% scale, with demonstration paths and files. These historical English/light images do not show the new display preferences or dark palette. They do not show OS chrome or certify native input/performance. Updated version 0.4.1 main/settings screenshots could not be obtained under this repository's current no-launch restriction.
 
 ![Interactive walkthrough with a scrubbable timeline and AI example](docs/screenshots/guide-ai.png)
 
@@ -78,9 +78,9 @@ cargo test --locked --all-targets -- --test-threads=2
 .\scripts\package.ps1
 ```
 
-Cargo is limited to two jobs and uses this repository's `target` directory. Add `--offline` to Cargo commands when the dependencies are already cached. Packaging builds without launching the application and produces `dist/FileOrganizer-v0.4.0.exe` and `dist/SHA256SUMS.txt`. The executable name has no architecture suffix because the initial distribution targets one architecture, Windows x64. Source builds for other platforms are not a supported release target.
+Cargo is limited to two jobs and uses this repository's `target` directory. Add `--offline` to Cargo commands when the dependencies are already cached. Packaging builds without launching the application and produces `dist/FileOrganizer-v0.4.1.exe` and `dist/SHA256SUMS.txt`. The executable name has no architecture suffix because the initial distribution targets one architecture, Windows x64. Source builds for other platforms are not a supported release target.
 
-Optional static inspection with Python's standard library (no executable launch): `python scripts/inspect_executable.py dist/FileOrganizer-v0.4.0.exe`. The application itself does not require Python. The UI uses CPU rasterization and a Win32 GDI presentation path. Native presentation and desktop responsiveness await manual validation.
+Optional static inspection with Python's standard library (no executable launch): `python scripts/inspect_executable.py dist/FileOrganizer-v0.4.1.exe`. The application itself does not require Python. The UI uses CPU rasterization and a Win32 GDI presentation path. Native presentation and desktop responsiveness await manual validation.
 
 For a first manual run, launch the packaged executable yourself. Start with a disposable folder and keep independent backups before using important files.
 
@@ -127,7 +127,7 @@ Journal records created before metadata preservation remain readable. They conta
 
 The stable updater compares semantic versions, rejects drafts/prereleases and selects the canonical `FileOrganizer-vVERSION.exe` asset. **Download and install** requires explicit user action and a paused organizer. It displays progress, checks published size, SHA-256 (GitHub asset digest or `SHA256SUMS.txt`) and Windows x64 PE headers, finishes file work, exits, replaces the executable through the downloaded shared-core headless helper, then restarts. Configuration/journal data remain in LocalAppData. The install directory must be writable without elevation. A failed download leaves the installation unchanged; replacement has a rollback backup. Helper failures are saved in `update-error.txt` for the next launch. Interrupted helpers may leave staging/backup files for inspection. The product adapter now delegates release selection, download, verification and replacement to the sibling `rust-auto-updator` core. Old helpers can install this version and their legacy cleanup arguments remain accepted. New helpers use the shared `--apply-update` / `--cleanup-update` protocol.
 
-No release/network download or updater installation has been exercised in this development session. See the [validation record and remaining manual checks](docs/VALIDATION.md) and [release notes](docs/RELEASE_NOTES_v0.4.0.md). Builds are not code-signed. SHA-256 verifies integrity against release metadata; it is not a publisher signature.
+No release/network download or updater installation has been exercised in this development session. See the [validation record and remaining manual checks](docs/VALIDATION.md) and [release notes](docs/RELEASE_NOTES_v0.4.1.md). Builds are not code-signed. SHA-256 verifies integrity against release metadata; it is not a publisher signature.
 
 ## Development
 
@@ -144,6 +144,6 @@ License: [MIT](LICENSE).
 
 ## Static visual review without computer use
 
-The developer-only mode `FileOrganizer-v0.4.0.exe --capture ABSOLUTE_OUTPUT_DIRECTORY [WIDTH HEIGHT [SCALE]]` renders nineteen actual screen fixtures through the same UI and CPU renderer as normal operation, writes PNGs plus `capture.json`, and exits. Use a fresh directory; existing files are never overwritten. The mode is parsed before normal startup: no window, file worker, update worker, database, filesystem watch or network request is started. Examples: default 1160 × 820; `960 680` for the minimum layout; `1200 850 1.25` for a 125% capture with a 960 × 680 logical client area. It has a 20-second internal batch deadline and three frames per screen; run it with a 30-second external process timeout. No version 0.4.0 capture was executed in this session.
+The developer-only mode `FileOrganizer-v0.4.1.exe --capture ABSOLUTE_OUTPUT_DIRECTORY [WIDTH HEIGHT [SCALE]]` renders nineteen actual screen fixtures through the same UI and CPU renderer as normal operation, writes PNGs plus `capture.json`, and exits. Use a fresh directory; existing files are never overwritten. The mode is parsed before normal startup: no window, file worker, update worker, database, filesystem watch or network request is started. Examples: default 1160 × 820; `960 680` for the minimum layout; `1200 850 1.25` for a 125% capture with a 960 × 680 logical client area. It has a 20-second internal batch deadline and three frames per screen; run it with a 30-second external process timeout. No version 0.4.1 capture was executed in this session.
 
 The normal desktop host reuses its retained bitmap for OS expose requests, counts raster frames separately from cached presentations, uses `Wait`/`WaitUntil`, discards stale repaint requests, and keeps hidden/minimized data changes dirty for restoration without rendering them. An optional `--render-log ABSOLUTE_JSON_PATH` writes frame/wakeup counts and layout/raster/present totals after an ordinary run exits. This diagnostic is outside consumer settings. It is preparation for native measurement, not proof of settled idle behavior. See [design and rendering review](docs/DESIGN_REVIEW.md).
