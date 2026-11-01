@@ -430,6 +430,87 @@ fn configuration_persists_opt_out_and_order() {
 }
 
 #[test]
+fn older_settings_gain_display_defaults_without_losing_rules_or_update_opt_out() {
+    use file_organizer::localization::{Language, Theme};
+    let f = Fixture::new();
+    let mut legacy = serde_json::to_value(&f.config).unwrap();
+    legacy.as_object_mut().unwrap().remove("language");
+    legacy.as_object_mut().unwrap().remove("theme");
+    let migrated: Config = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(migrated.language, Language::English);
+    assert_eq!(migrated.theme, Theme::Light);
+    assert_eq!(migrated.rules, f.config.rules);
+    assert_eq!(migrated.source_roots, f.config.source_roots);
+    assert!(!migrated.startup_updates);
+    legacy["language"] = "FutureLanguage".into();
+    legacy["theme"] = "FutureTheme".into();
+    assert_eq!(serde_json::from_value::<Config>(legacy).unwrap(), migrated);
+}
+
+#[test]
+fn display_preferences_persist_without_pausing_watching_or_invalidating_the_plan() {
+    use file_organizer::localization::{Language, Theme};
+    let f = Fixture::new();
+    let data = f._temp.path().join("display-settings-data");
+    let worker = Worker::start(data.clone(), || {});
+    until(&worker, |event| matches!(event, Event::Loaded(_)), 5);
+    worker
+        .commands
+        .send(Command::Watch {
+            config: f.config.clone(),
+            automatic: false,
+        })
+        .unwrap();
+    until(
+        &worker,
+        |event| matches!(event, Event::Watching(true, false)),
+        5,
+    );
+    // Watch starts an immediate initial scan on the following worker turn.
+    // Wait for its plan, rather than racing a queued scan against the preference save.
+    until(&worker, |event| matches!(event, Event::Plan { .. }), 5);
+    until(&worker, |event| matches!(event, Event::Busy(false)), 5);
+    worker
+        .commands
+        .send(Command::Appearance {
+            language: Language::Italian,
+            theme: Theme::Dark,
+        })
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut acknowledged = false;
+    loop {
+        let event = worker
+            .events
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        match event {
+            Event::AppearanceSaved {
+                language: Language::Italian,
+                theme: Theme::Dark,
+            } => acknowledged = true,
+            Event::Busy(false) if acknowledged => break,
+            Event::Error(error) => panic!("Display preference save failed: {error}"),
+            Event::Watching(false, _) | Event::Plan { .. } => {
+                panic!("Display preferences changed the organization workflow")
+            }
+            _ => {}
+        }
+    }
+    worker.shutdown(None);
+    until(&worker, |event| matches!(event, Event::Stopped), 5);
+    let loaded = Journal::open(&data.join("organizer.db"))
+        .unwrap()
+        .config()
+        .unwrap();
+    assert_eq!(loaded.language, Language::Italian);
+    assert_eq!(loaded.theme, Theme::Dark);
+    assert_eq!(loaded.rules, f.config.rules);
+    assert_eq!(loaded.destination_roots, f.config.destination_roots);
+    assert!(!loaded.startup_updates);
+}
+
+#[test]
 fn shared_updater_binds_product_version_and_canonical_assets() {
     let mut config = updater::config().unwrap();
     config.current_version = "0.9.0".parse().unwrap();

@@ -594,9 +594,9 @@ impl Organizer {
         ui.horizontal_wrapped(|ui| {
             for label in ["Documents", "Photos", "Downloads", "Custom"] {
                 if ui.button(format!("+ {}", tr(ui, label))).clicked() {
-                    self.config
-                        .rules
-                        .push(rule_template(label, &self.config.destination_roots));
+                    let mut rule = rule_template(label, &self.config.destination_roots);
+                    rule.name = tr(ui, &rule.name).to_owned();
+                    self.config.rules.push(rule);
                     self.selected_rule = self.config.rules.len() - 1;
                 }
             }
@@ -743,8 +743,10 @@ impl Organizer {
                         caption(
                             ui,
                             format!(
-                                "{:?} · {} · {}",
-                                entry.operation.action, entry.operation.rule_name, entry.created
+                                "{} · {} · {}",
+                                tr(ui, action_name(entry.operation.action)),
+                                entry.operation.rule_name,
+                                entry.created
                             ),
                         );
                         path_label(ui, &entry.operation.source.display().to_string());
@@ -757,7 +759,7 @@ impl Organizer {
                             ),
                         );
                         if !entry.error.is_empty() {
-                            ui.colored_label(colors(ui).error, &entry.error);
+                            ui.colored_label(colors(ui).error, translate_status(ui, &entry.error));
                         }
                     });
                     ui.add_space(8.0);
@@ -1005,10 +1007,10 @@ fn size_field(
         }
         egui::ComboBox::from_id_salt(id)
             .width(68.0)
-            .selected_text(["bytes", "KB", "MB", "GB"][unit])
+            .selected_text(tr(ui, ["bytes", "KB", "MB", "GB"][unit]))
             .show_ui(ui, |ui| {
                 for (index, name) in ["bytes", "KB", "MB", "GB"].into_iter().enumerate() {
-                    ui.selectable_value(&mut unit, index, name);
+                    ui.selectable_value(&mut unit, index, tr(ui, name));
                 }
             });
     });

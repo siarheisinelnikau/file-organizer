@@ -4,13 +4,14 @@ use std::{collections::BTreeMap, sync::OnceLock};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Language {
-    #[default]
-    English,
     Russian,
     French,
     German,
     Spanish,
     Italian,
+    #[default]
+    #[serde(other)]
+    English,
 }
 impl Language {
     pub const ALL: [Self; 6] = [
@@ -45,16 +46,17 @@ impl Language {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Theme {
-    #[default]
-    Light,
     Dark,
+    #[default]
+    #[serde(other)]
+    Light,
 }
 
 type Catalog = BTreeMap<String, [String; 5]>;
 fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<Catalog> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        include_str!("../locales/messages.tsv")
+        include_str!("../locales/messages.psv")
             .lines()
             .filter(|line| !line.trim().is_empty())
             .map(|line| {
@@ -170,6 +172,14 @@ mod tests {
     #[test]
     fn every_catalog_entry_has_five_complete_translations_and_preserves_placeholders() {
         assert!(catalog().len() > 200);
+        assert_eq!(
+            catalog().len(),
+            include_str!("../locales/messages.psv")
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .count(),
+            "duplicate English translation keys"
+        );
         for (key, row) in catalog() {
             for translated in row {
                 assert!(!translated.trim().is_empty(), "{key}");
@@ -196,5 +206,21 @@ mod tests {
             r"C:\Review\Documents.txt"
         );
         assert_eq!(text(Language::English, "Review"), "Review");
+        assert_eq!(
+            format_for(
+                Language::German,
+                "Collision skipped: {}",
+                r"Collision skipped: C:\Review\{name}.txt"
+            ),
+            r"Konflikt übersprungen: C:\Review\{name}.txt"
+        );
+        assert_eq!(
+            format_for(
+                Language::Russian,
+                "Completed {completed} of {total} actions. Review Activity for details.",
+                "Completed 2 of 3 actions. Review Activity for details."
+            ),
+            "Выполнено 2 из 3 действий. Подробности в истории."
+        );
     }
 }

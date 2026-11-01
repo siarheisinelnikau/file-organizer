@@ -43,10 +43,25 @@ pub(crate) fn translate_status(ui: &egui::Ui, status: &str) -> String {
         "Recovered {}",
         "Recovery needs attention: {e:#}",
         "Cannot read {}: {e}",
+        "AI left {} unclassified. Reclassify to ask again.",
+        "AI Hub returned HTTP {status}. Its active model must support non-streaming JSON chat completions.",
     ] {
         let result = formatted(ui, template, status);
         if result != status {
             return result;
+        }
+    }
+    for context in [
+        "Enter the AI Hub base URL, for example http://127.0.0.1:8080/v1",
+        "AI Hub did not return a JSON response",
+        "AI Hub did not return a model list",
+        "AI Hub returned invalid classification JSON. No changes were planned.",
+    ] {
+        if let Some(details) = status
+            .strip_prefix(context)
+            .and_then(|rest| rest.strip_prefix(": "))
+        {
+            return format!("{}: {details}", tr(ui, context));
         }
     }
     status.to_owned()
@@ -75,6 +90,7 @@ pub struct Organizer {
     config: Config,
     loaded: bool,
     dirty: bool,
+    appearance_dirty: bool,
     busy: bool,
     ai_busy: bool,
     ai_done: usize,
@@ -127,6 +143,7 @@ impl Organizer {
             config: Config::default(),
             loaded: !live,
             dirty: false,
+            appearance_dirty: false,
             busy: false,
             ai_busy: false,
             ai_done: 0,
@@ -196,6 +213,11 @@ impl Organizer {
                     if self.config.startup_updates {
                         self.update_status = "Checking for updates…".into();
                         self.update_command(UpdateCommand::Check);
+                    }
+                }
+                Event::AppearanceSaved { language, theme } => {
+                    if self.config.language == language && self.config.theme == theme {
+                        self.appearance_dirty = false;
                     }
                 }
                 Event::Plan { generation, plan } => {
@@ -317,7 +339,7 @@ impl Organizer {
             return;
         }
         if let Some(worker) = &self.worker {
-            worker.shutdown(self.dirty.then(|| self.config.clone()));
+            worker.shutdown((self.dirty || self.appearance_dirty).then(|| self.config.clone()));
         } else {
             self.may_close = true;
         }
@@ -335,16 +357,17 @@ impl Organizer {
             if before.language != self.config.language || before.theme != self.config.theme {
                 localization::set_language(ui.ctx(), self.config.language);
                 crate::design::apply_theme(ui.ctx(), self.config.theme);
+                ui.ctx().request_repaint();
                 let mut workflow = self.config.clone();
                 workflow.language = before.language;
                 workflow.theme = before.theme;
-                if workflow == before {
-                    // Appearance does not invalidate a reviewed plan or pause monitoring.
-                    self.send(Command::Appearance {
-                        language: self.config.language,
-                        theme: self.config.theme,
-                    });
-                } else {
+                // Appearance does not invalidate a reviewed plan or pause monitoring.
+                self.appearance_dirty = true;
+                self.send(Command::Appearance {
+                    language: self.config.language,
+                    theme: self.config.theme,
+                });
+                if workflow != before {
                     self.configuration_changed();
                 }
             } else {

@@ -87,7 +87,7 @@ impl Renderer {
                 .collect(),
             free: output.textures_delta.free.drain().map(texture_id).collect(),
         };
-        let background = ctx.style().visuals.panel_fill.to_array();
+        let background = ctx.global_style().visuals.panel_fill.to_array();
         let mut pixels = vec![background; width as usize * height as usize];
         self.backend.render(
             &mut BufferMutRef::new(&mut pixels, width as usize, height as usize),
@@ -177,6 +177,29 @@ mod tests {
         let pixels = Renderer::new().draw(&ctx, output, 128, 128).unwrap();
         assert_eq!(pixels[32 * 128 + 32], [0, 0, 255, 255]);
         assert_eq!(pixels[96 * 128 + 96], [0, 255, 0, 255]);
-        assert_eq!(pixels[0], [246, 248, 247, 255]);
+        assert_eq!(pixels[0], ctx.global_style().visuals.panel_fill.to_array());
+    }
+
+    #[test]
+    fn cpu_canvas_uses_the_selected_theme_instead_of_a_fixed_light_background() {
+        let ctx = egui::Context::default();
+        crate::design::configure(&ctx);
+        let mut colors = Vec::new();
+        for theme in [
+            file_organizer::localization::Theme::Light,
+            file_organizer::localization::Theme::Dark,
+        ] {
+            crate::design::apply_theme(&ctx, theme);
+            let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+            output.shapes.clear();
+            let pixels = Renderer::new().draw(&ctx, output, 64, 64).unwrap();
+            assert!(
+                pixels
+                    .iter()
+                    .all(|pixel| *pixel == ctx.global_style().visuals.panel_fill.to_array())
+            );
+            colors.push(pixels[0]);
+        }
+        assert_ne!(colors[0], colors[1]);
     }
 }
