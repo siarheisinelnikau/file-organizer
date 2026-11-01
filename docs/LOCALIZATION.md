@@ -1,8 +1,8 @@
 # Interface languages and themes
 
-FileOrganizer 0.4.0 supports English, Russian, French, German, Spanish and Italian. Settings always exposes the language selector with native names and Light / Dark buttons above its tabs. Both preferences save automatically and update without restarting.
+FileOrganizer 0.4.1 supports English, Russian, French, German, Spanish and Italian. Settings always exposes the language selector with native names and Light / Dark buttons above its tabs. Both preferences save automatically and update without restarting.
 
-`Config.language` and `Config.theme` live in the existing SQLite configuration JSON. Serde defaults preserve older configurations, including folders, ordered rules and startup-update opt-out. Unknown future language/theme values fall back to English/light instead of making the database unreadable. Appearance-only saves update those two fields in the worker's saved configuration; they do not commit unsaved rule edits, replace the current plan, stop a watcher or cancel AI work. Shutdown also saves any unacknowledged appearance change.
+`Config.language` and `Config.theme` live in the existing SQLite configuration JSON. Serde defaults preserve older configurations, including folders, ordered rules and startup-update opt-out. Unknown future language/theme values fall back to English/light instead of making the database unreadable. Appearance-only saves update those two fields in the worker's saved configuration; they do not commit unsaved rule edits, replace the current plan, stop a watcher or cancel AI work. Orderly shutdown saves the latest loaded UI snapshot even when older preference saves or acknowledgements are queued. Closing before settings load never writes startup defaults over the existing configuration.
 
 ## Catalog
 
@@ -20,4 +20,4 @@ Appearance updates request one useful repaint. Normal rendering still uses the e
 
 ## Verification limits
 
-Catalog completeness and placeholder preservation, old-settings migration, future-value fallback, persistence and monitoring/plan preservation have automated fixture checks. Normal GUI launches and screenshot capture are prohibited by the repository instructions for this session, so version 0.4.0 visual layout, native titlebar behavior, language switching through actual input, and visible/hidden rendering counters remain unverified. Existing README images are real version 0.3.1 English/light evidence and are labeled accordingly.
+Catalog completeness and placeholder preservation, old-settings migration, future-value fallback, persistence, rapid preference changes on shutdown, early-close preservation and monitoring/plan preservation have automated fixture checks. Normal GUI launches and screenshot capture are prohibited by the repository instructions for this session, so version 0.4.1 visual layout, native titlebar behavior, language switching through actual input, and visible/hidden rendering counters remain unverified. Existing README images are real version 0.3.1 English/light evidence and are labeled accordingly.
