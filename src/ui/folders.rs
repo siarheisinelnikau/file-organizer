@@ -69,12 +69,12 @@ impl FolderPicker {
         let (sender, result) = mpsc::sync_channel(1);
         let parent = self.parent.clone();
         let picker = self.picker.clone();
-        let title = target.title();
+        let title = localization::text(before.language, target.title()).to_owned();
         thread::Builder::new()
             .name("folder-chooser".into())
             .spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    picker(title, &initial, parent.as_deref())
+                    picker(&title, &initial, parent.as_deref())
                 }))
                 .unwrap_or_else(|_| {
                     Err(anyhow::anyhow!(
@@ -308,19 +308,19 @@ pub(super) fn folder_field(
     value: &mut String,
     saved: &[String],
 ) -> bool {
-    ui.strong(label);
+    ui.strong(tr(ui, label));
     let browse = ui
         .horizontal(|ui| {
             let width = (ui.available_width() - 108.0).max(100.0);
             edit_path(ui, value, width);
-            ui.button("Choose…")
-                .on_hover_text("Open the Windows folder chooser")
+            ui.button(tr(ui, "Choose…"))
+                .on_hover_text(tr(ui, "Open the Windows folder chooser"))
                 .clicked()
         })
         .inner;
     if saved.iter().any(|p| !p.trim().is_empty()) {
         egui::ComboBox::from_id_salt(id)
-            .selected_text("Use a saved destination")
+            .selected_text(tr(ui, "Use a saved destination"))
             .width(210.0)
             .show_ui(ui, |ui| {
                 for path in saved.iter().filter(|p| !p.trim().is_empty()) {
@@ -346,7 +346,7 @@ pub(super) fn edit_path(ui: &mut egui::Ui, value: &mut String, width: f32) {
     if ui
         .add(
             egui::TextEdit::singleline(value)
-                .hint_text("Choose a folder or paste a path")
+                .hint_text(tr(ui, "Choose a folder or paste a path"))
                 .desired_width(width),
         )
         .lost_focus()

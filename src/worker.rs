@@ -21,6 +21,10 @@ use std::{
 
 pub enum Command {
     Save(Config),
+    Appearance {
+        language: crate::localization::Language,
+        theme: crate::localization::Theme,
+    },
     Preview(Config),
     Reclassify(Config),
     CheckAi(crate::model::AiSettings),
@@ -361,6 +365,11 @@ fn run(
         let mut request_plan = false;
         let outcome = (|| -> Result<()> {
             match next {
+                Some(Command::Appearance { language, theme }) => {
+                    config.language = language;
+                    config.theme = theme;
+                    journal.save_config(&config)?;
+                }
                 Some(Command::Save(value)) => {
                     cancel_ai(&mut ai_task, emit);
                     watcher = None;

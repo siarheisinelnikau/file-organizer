@@ -1,5 +1,6 @@
 use crate::design::*;
 use egui::{self, RichText};
+use file_organizer::localization::{self, Language, Theme, formatted, tr};
 mod ai_view;
 mod capture;
 mod folders;
@@ -13,6 +14,43 @@ use file_organizer::{
     worker::{Command, Event, Worker},
 };
 use std::path::PathBuf;
+
+fn action_name(action: Action) -> &'static str {
+    match action {
+        Action::Move => "Move",
+        Action::Copy => "Copy",
+        Action::Rename => "Rename",
+    }
+}
+
+/// Authored status messages keep canonical English values in state so switching languages
+/// also updates an already displayed result. Technical diagnostic payloads stay intact.
+pub(crate) fn translate_status(ui: &egui::Ui, status: &str) -> String {
+    let translated = tr(ui, status);
+    if translated != status {
+        return translated.to_owned();
+    }
+    for template in [
+        "Version {} is available",
+        "Completed {completed} of {total} actions. Review Activity for details.",
+        "Universal is connected to {}.",
+        "Collision skipped: {}",
+        "Link skipped: {}",
+        "No available name for {name}",
+        "{}: invalid filename template",
+        "{}: destination must be absolute",
+        "AI left {} for review: {}",
+        "Recovered {}",
+        "Recovery needs attention: {e:#}",
+        "Cannot read {}: {e}",
+    ] {
+        let result = formatted(ui, template, status);
+        if result != status {
+            return result;
+        }
+    }
+    status.to_owned()
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
@@ -152,6 +190,8 @@ impl Organizer {
             match event {
                 Event::Loaded(config) => {
                     self.config = config;
+                    localization::set_language(ctx, self.config.language);
+                    crate::design::apply_theme(ctx, self.config.theme);
                     self.loaded = true;
                     if self.config.startup_updates {
                         self.update_status = "Checking for updates…".into();
@@ -285,13 +325,31 @@ impl Organizer {
     }
 
     pub fn paint(&mut self, ui: &mut egui::Ui) {
+        localization::set_language(ui.ctx(), self.config.language);
         let before = self.config.clone();
         self.shell(ui);
         if self.page != Page::Guide {
             self.pause_guide();
         }
         if before != self.config {
-            self.configuration_changed();
+            if before.language != self.config.language || before.theme != self.config.theme {
+                localization::set_language(ui.ctx(), self.config.language);
+                crate::design::apply_theme(ui.ctx(), self.config.theme);
+                let mut workflow = self.config.clone();
+                workflow.language = before.language;
+                workflow.theme = before.theme;
+                if workflow == before {
+                    // Appearance does not invalidate a reviewed plan or pause monitoring.
+                    self.send(Command::Appearance {
+                        language: self.config.language,
+                        theme: self.config.theme,
+                    });
+                } else {
+                    self.configuration_changed();
+                }
+            } else {
+                self.configuration_changed();
+            }
         }
     }
     fn configuration_changed(&mut self) {
