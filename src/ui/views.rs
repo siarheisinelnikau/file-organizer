@@ -9,9 +9,9 @@ impl Organizer {
             .resizable(false)
             .frame(
                 Frame::new()
-                    .fill(Color32::WHITE)
+                    .fill(colors(root).surface)
                     .inner_margin(Margin::same(18))
-                    .stroke(Stroke::new(1.0, BORDER)),
+                    .stroke(Stroke::new(1.0, colors(root).border)),
             )
             .show(root, |ui| {
                 ui.add_space(8.0);
@@ -19,7 +19,7 @@ impl Organizer {
                     RichText::new("FileOrganizer")
                         .size(21.0)
                         .strong()
-                        .color(ACCENT),
+                        .color(colors(ui).accent),
                 );
                 caption(ui, "Less clutter. More clarity.");
                 ui.add_space(32.0);
@@ -31,49 +31,62 @@ impl Organizer {
                 ] {
                     let selected = self.page == page;
                     Frame::new()
-                        .fill(if selected { TINT } else { Color32::TRANSPARENT })
+                        .fill(if selected {
+                            colors(ui).tint
+                        } else {
+                            Color32::TRANSPARENT
+                        })
                         .corner_radius(8)
                         .inner_margin(Margin::same(8))
                         .show(ui, |ui| {
                             if ui
                                 .add_sized(
                                     [ui.available_width(), 28.0],
-                                    egui::Button::new(RichText::new(label).strong()).frame(false),
+                                    egui::Button::new(RichText::new(tr(ui, label)).strong())
+                                        .frame(false),
                                 )
                                 .clicked()
                             {
                                 self.page = page;
                             }
-                            ui.label(RichText::new(hint).small().color(MUTED));
+                            ui.label(RichText::new(tr(ui, hint)).small().color(colors(ui).muted));
                         });
                     ui.add_space(4.0);
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    caption(ui, format!("Version {}", updater::VERSION));
-                    if ui.link("How it works").clicked() {
+                    caption(
+                        ui,
+                        formatted(ui, "Version {}", &format!("Version {}", updater::VERSION)),
+                    );
+                    if ui.link(tr(ui, "How it works")).clicked() {
                         self.page = Page::Guide;
                     }
-                    if self.available_update.is_some() && ui.link("Update available").clicked() {
+                    if self.available_update.is_some()
+                        && ui.link(tr(ui, "Update available")).clicked()
+                    {
                         self.page = Page::Settings;
                         self.settings_tab = 3;
                     }
                     ui.add_space(12.0);
                     ui.label(
-                        RichText::new(if self.shutting_down {
-                            "Finishing safely"
-                        } else if self.automatic {
-                            "Automatic filing"
-                        } else if self.watching {
-                            "Watching for review"
-                        } else {
-                            "Organization paused"
-                        })
+                        RichText::new(tr(
+                            ui,
+                            if self.shutting_down {
+                                "Finishing safely"
+                            } else if self.automatic {
+                                "Automatic filing"
+                            } else if self.watching {
+                                "Watching for review"
+                            } else {
+                                "Organization paused"
+                            },
+                        ))
                         .strong()
-                        .color(ACCENT),
+                        .color(colors(ui).accent),
                     );
                     if self.watching
                         && ui
-                            .add_enabled(!self.busy, egui::Button::new("Pause monitoring"))
+                            .add_enabled(!self.busy, egui::Button::new(tr(ui, "Pause monitoring")))
                             .clicked()
                     {
                         self.send(Command::Pause);
@@ -84,7 +97,11 @@ impl Organizer {
                 });
             });
         egui::CentralPanel::default()
-            .frame(Frame::new().fill(CANVAS).inner_margin(Margin::same(26)))
+            .frame(
+                Frame::new()
+                    .fill(colors(root).canvas)
+                    .inner_margin(Margin::same(26)),
+            )
             .show(root, |ui| {
                 let (title, subtitle) = match self.page {
                     Page::Guide => (
@@ -110,7 +127,7 @@ impl Organizer {
                 };
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        ui.heading(title);
+                        ui.heading(tr(ui, title));
                         caption(ui, subtitle);
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -132,19 +149,23 @@ impl Organizer {
                         if self.folders.is_open() {
                             caption(ui, "Folder chooser open");
                         } else if self.ai_busy {
-                            if ui.button("Cancel AI").clicked() {
+                            if ui.button(tr(ui, "Cancel AI")).clicked() {
                                 self.send(Command::CancelAi);
                             }
                             caption(
                                 ui,
                                 if self.ai_total > 0 {
-                                    format!("AI · {} / {} files", self.ai_done, self.ai_total)
+                                    formatted(
+                                        ui,
+                                        "AI · {} / {} files",
+                                        &format!("AI · {} / {} files", self.ai_done, self.ai_total),
+                                    )
                                 } else {
                                     "AI · connecting".into()
                                 },
                             );
                         } else if self.busy {
-                            ui.label("Working…");
+                            ui.label(tr(ui, "Working…"));
                         }
                     });
                 });
@@ -152,23 +173,31 @@ impl Organizer {
                 if self.pending > 0 {
                     notice(
                         ui,
-                        WARNING,
+                        colors(ui).warning,
                         "Some changes need recovery before you continue.",
                     );
-                    if self.page != Page::Activity && ui.link("Open recovery").clicked() {
+                    if self.page != Page::Activity && ui.link(tr(ui, "Open recovery")).clicked() {
                         self.page = Page::Activity;
                     }
                 } else if let Some((error, text)) = self.messages.last() {
-                    notice(ui, if *error { ERROR } else { ACCENT }, text);
+                    notice(
+                        ui,
+                        if *error {
+                            colors(ui).error
+                        } else {
+                            colors(ui).accent
+                        },
+                        text,
+                    );
                 }
                 if !self.loaded {
-                    ui.label("Loading your folders and history…");
+                    ui.label(tr(ui, "Loading your folders and history…"));
                     return;
                 }
                 if self.shutting_down {
                     notice(
                         ui,
-                        MUTED,
+                        colors(ui).muted,
                         "Finishing the current file safely before closing…",
                     );
                 }
@@ -197,8 +226,12 @@ impl Organizer {
     fn review_view(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.config.mode, PlanningMode::AiHub, "AI Hub");
-            ui.selectable_value(&mut self.config.mode, PlanningMode::Rules, "Manual rules");
-            if ui.button("How it works").clicked() {
+            ui.selectable_value(
+                &mut self.config.mode,
+                PlanningMode::Rules,
+                tr(ui, "Manual rules"),
+            );
+            if ui.button(tr(ui, "How it works")).clicked() {
                 self.page = Page::Guide;
             }
         });
@@ -241,7 +274,7 @@ impl Organizer {
             surface(ui, |ui| {
                 ui.add_space(20.0);
                 ui.label(
-                    RichText::new("Give your files a place to go")
+                    RichText::new(tr(ui, "Give your files a place to go"))
                         .size(23.0)
                         .strong(),
                 );
@@ -272,12 +305,12 @@ impl Organizer {
                 ] {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new(if ready { "Ready" } else { n })
-                                .color(ACCENT)
+                            RichText::new(tr(ui, if ready { "Ready" } else { n }))
+                                .color(colors(ui).accent)
                                 .strong(),
                         );
                         ui.vertical(|ui| {
-                            ui.strong(title);
+                            ui.strong(tr(ui, title));
                             caption(ui, detail);
                         });
                     });
@@ -310,10 +343,10 @@ impl Organizer {
                 self.send(Command::Preview(self.config.clone()));
                 self.dirty = false;
             }
-            if ai && ui.button("Reclassify").on_hover_text("Discard cached AI categories and ask Universal again. This sends another request.").clicked() { self.send(Command::Reclassify(self.config.clone())); self.dirty = false; }
+            if ai && ui.button(tr(ui, "Reclassify")).on_hover_text(tr(ui, "Discard cached AI categories and ask Universal again. This sends another request.")).clicked() { self.send(Command::Reclassify(self.config.clone())); self.dirty = false; }
             if ui
-                .button("Watch for changes")
-                .on_hover_text("Keep this preview updated. Files only change after approval.")
+                .button(tr(ui, "Watch for changes"))
+                .on_hover_text(tr(ui, "Keep this preview updated. Files only change after approval."))
                 .clicked()
             {
                 self.send(Command::Watch {
@@ -327,20 +360,27 @@ impl Organizer {
         if self.plan.waiting > 0 {
             caption(
                 ui,
-                format!(
+                formatted(
+                    ui,
                     "Waiting for {} files to finish changing. The preview refreshes automatically.",
-                    self.plan.waiting
+                    &format!(
+                        "Waiting for {} files to finish changing. The preview refreshes automatically.",
+                        self.plan.waiting
+                    ),
                 ),
             );
         }
         let count = self.selected.iter().filter(|s| **s).count();
         if self.plan.operations.is_empty() {
             surface(ui, |ui| {
-                ui.strong(if self.plan.scanned == 0 {
-                    "See the plan before you commit"
-                } else {
-                    "No changes to review"
-                });
+                ui.strong(tr(
+                    ui,
+                    if self.plan.scanned == 0 {
+                        "See the plan before you commit"
+                    } else {
+                        "No changes to review"
+                    },
+                ));
                 caption(
                     ui,
                     if ai {
@@ -354,26 +394,37 @@ impl Organizer {
             });
         } else {
             ui.horizontal_wrapped(|ui| {
-                ui.strong(format!("{} proposed changes", self.plan.operations.len()));
+                ui.strong(formatted(
+                    ui,
+                    "{} proposed changes",
+                    &format!("{} proposed changes", self.plan.operations.len()),
+                ));
                 if ui
-                    .small_button(if ai {
-                        "Select recommended"
-                    } else {
-                        "Select all"
-                    })
+                    .small_button(tr(
+                        ui,
+                        if ai {
+                            "Select recommended"
+                        } else {
+                            "Select all"
+                        },
+                    ))
                     .clicked()
                 {
                     for (selected, op) in self.selected.iter_mut().zip(&self.plan.operations) {
                         *selected = !ai || file_organizer::ai::recommended(op, &self.config.ai);
                     }
                 }
-                if ui.small_button("Clear").clicked() {
+                if ui.small_button(tr(ui, "Clear")).clicked() {
                     self.selected.fill(false);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if primary(
                         ui,
-                        format!("Organize {count} selected"),
+                        formatted(
+                            ui,
+                            "Organize {count} selected",
+                            &format!("Organize {count} selected"),
+                        ),
                         count > 0 && !self.dirty && self.pending == 0,
                     )
                     .clicked()
@@ -404,9 +455,13 @@ impl Organizer {
             if ai {
                 caption(
                     ui,
-                    format!(
+                    formatted(
+                        ui,
                         "Recommended: model confidence at least {}%. This estimate is not a guarantee; check the destinations.",
-                        self.config.ai.minimum_confidence
+                        &format!(
+                            "Recommended: model confidence at least {}%. This estimate is not a guarantee; check the destinations.",
+                            self.config.ai.minimum_confidence
+                        ),
                     ),
                 );
             }
@@ -423,16 +478,17 @@ impl Organizer {
                         for i in range {
                             let op = &self.plan.operations[i];
                             Frame::new()
-                                .fill(Color32::WHITE)
+                                .fill(colors(ui).surface)
                                 .inner_margin(Margin::same(12))
                                 .corner_radius(8)
                                 .show(ui, |ui| {
                                     ui.set_min_width(ui.available_width());
                                     ui.set_min_height(if ai { 134.0 } else { 104.0 });
                                     ui.horizontal(|ui| {
-                                        ui.checkbox(&mut self.selected[i], "").on_hover_text(
+                                        ui.checkbox(&mut self.selected[i], "").on_hover_text(tr(
+                                            ui,
                                             "Include this file in the approved changes",
-                                        );
+                                        ));
                                         ui.vertical(|ui| {
                                             ui.horizontal(|ui| {
                                                 let name = op
@@ -460,12 +516,12 @@ impl Organizer {
                                                     },
                                                 );
                                                 ui.label(
-                                                    RichText::new(format!("{:?}", op.action))
-                                                        .color(ACCENT),
+                                                    RichText::new(tr(ui, action_name(op.action)))
+                                                        .color(colors(ui).accent),
                                                 );
                                                 ui.label(
                                                     RichText::new(size_label(op.stamp.bytes))
-                                                        .color(MUTED)
+                                                        .color(colors(ui).muted)
                                                         .small(),
                                                 );
                                             });
@@ -481,9 +537,9 @@ impl Organizer {
                                                                 op,
                                                                 &self.config.ai,
                                                             ) {
-                                                                ACCENT
+                                                                colors(ui).accent
                                                             } else {
-                                                                WARNING
+                                                                colors(ui).warning
                                                             },
                                                         ),
                                                     )
@@ -493,7 +549,10 @@ impl Organizer {
                                             }
                                             path_label(ui, &op.source.display().to_string());
                                             ui.horizontal(|ui| {
-                                                ui.label(RichText::new("to").color(ACCENT));
+                                                ui.label(
+                                                    RichText::new(tr(ui, "to"))
+                                                        .color(colors(ui).accent),
+                                                );
                                                 path_label(
                                                     ui,
                                                     &op.destination.display().to_string(),
@@ -508,16 +567,20 @@ impl Organizer {
                 );
         }
         if !self.plan.notices.is_empty() {
-            egui::CollapsingHeader::new(format!("{} items to know about", self.plan.notices.len()))
-                .show(ui, |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(160.0)
-                        .show(ui, |ui| {
-                            for notice in &self.plan.notices {
-                                ui.label(notice);
-                            }
-                        });
-                });
+            egui::CollapsingHeader::new(formatted(
+                ui,
+                "{} items to know about",
+                &format!("{} items to know about", self.plan.notices.len()),
+            ))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(160.0)
+                    .show(ui, |ui| {
+                        for notice in &self.plan.notices {
+                            ui.label(translate_status(ui, notice));
+                        }
+                    });
+            });
         }
     }
 
@@ -528,9 +591,9 @@ impl Organizer {
                 "AI Hub is active. These rules are used only when Manual rules is selected on Review.",
             );
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             for label in ["Documents", "Photos", "Downloads", "Custom"] {
-                if ui.button(format!("+ {label}")).clicked() {
+                if ui.button(format!("+ {}", tr(ui, label))).clicked() {
                     self.config
                         .rules
                         .push(rule_template(label, &self.config.destination_roots));
@@ -558,20 +621,20 @@ impl Organizer {
                 caption(ui, "RULE ORDER");
                 egui::ScrollArea::vertical().id_salt("rule-list").auto_shrink([false,true]).max_height(height-110.0).show(ui, |ui| {
                     for (index, rule) in self.config.rules.iter_mut().enumerate() {
-                        Frame::new().fill(if index == self.selected_rule { TINT } else { Color32::WHITE }).corner_radius(8).inner_margin(10).show(ui, |ui| {
+                        Frame::new().fill(if index == self.selected_rule { colors(ui).tint } else { colors(ui).surface }).corner_radius(8).inner_margin(10).show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                ui.checkbox(&mut rule.enabled, "").on_hover_text("Enable this rule");
+                                ui.checkbox(&mut rule.enabled, "").on_hover_text(tr(ui, "Enable this rule"));
                                 if ui.selectable_label(index == self.selected_rule, format!("{}  {}", index+1, rule.name)).clicked() { self.selected_rule = index; }
                             });
-                            caption(ui, format!("{:?} · {}", rule.action, if rule.extensions.is_empty() { "all file types" } else { &rule.extensions }));
+                            caption(ui, format!("{} · {}", tr(ui, action_name(rule.action)), if rule.extensions.is_empty() { tr(ui, "all file types") } else { &rule.extensions }));
                         }); ui.add_space(6.0);
                     }
                 });
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(self.selected_rule > 0, egui::Button::new("Move up")).clicked() { self.config.rules.swap(self.selected_rule, self.selected_rule-1); self.selected_rule-=1; }
-                    if ui.add_enabled(self.selected_rule+1 < self.config.rules.len(), egui::Button::new("Move down")).clicked() { self.config.rules.swap(self.selected_rule, self.selected_rule+1); self.selected_rule+=1; }
+                    if ui.add_enabled(self.selected_rule > 0, egui::Button::new(tr(ui, "Move up"))).clicked() { self.config.rules.swap(self.selected_rule, self.selected_rule-1); self.selected_rule-=1; }
+                    if ui.add_enabled(self.selected_rule+1 < self.config.rules.len(), egui::Button::new(tr(ui, "Move down"))).clicked() { self.config.rules.swap(self.selected_rule, self.selected_rule+1); self.selected_rule+=1; }
                 });
-                if ui.button(RichText::new("Remove rule").color(ERROR)).clicked() { self.config.rules.remove(self.selected_rule); }
+                if ui.button(RichText::new(tr(ui, "Remove rule")).color(colors(ui).error)).clicked() { self.config.rules.remove(self.selected_rule); }
             });
             ui.add_space(12.0);
             let Some(rule) = self.config.rules.get_mut(self.selected_rule) else { return };
@@ -583,13 +646,13 @@ impl Organizer {
                     field(ui, "File extensions", &mut rule.extensions);
                     caption(ui, "Separate with commas, for example pdf, docx. Leave blank for all types.");
                     field(ui, "Filename pattern", &mut rule.pattern);
-                    ui.horizontal(|ui| { ui.label("Modified at least"); ui.add(egui::DragValue::new(&mut rule.min_age_minutes).range(0..=525600).suffix(" min ago")); });
-                    egui::CollapsingHeader::new("Size & source subfolders").default_open(rule.min_bytes > 0 || rule.max_bytes > 0 || rule.folder_pattern != "*").show(ui, |ui| {
-                        ui.strong("Source subfolders");
-                        egui::ComboBox::from_id_salt("folder-pattern-kind").selected_text(if rule.folder_pattern == "*" { "All subfolders" } else if rule.folder_pattern.is_empty() { "Source folder only" } else { "Custom pattern" }).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut rule.folder_pattern, "*".into(), "All subfolders");
-                            ui.selectable_value(&mut rule.folder_pattern, String::new(), "Source folder only");
-                            if ui.selectable_label(!rule.folder_pattern.is_empty() && rule.folder_pattern != "*", "Custom pattern").clicked() { rule.folder_pattern = "Projects/*".into(); }
+                    ui.horizontal(|ui| { ui.label(tr(ui, "Modified at least")); ui.add(egui::DragValue::new(&mut rule.min_age_minutes).range(0..=525600).suffix(tr(ui, " min ago"))); });
+                    egui::CollapsingHeader::new(tr(ui, "Size & source subfolders")).default_open(rule.min_bytes > 0 || rule.max_bytes > 0 || rule.folder_pattern != "*").show(ui, |ui| {
+                        ui.strong(tr(ui, "Source subfolders"));
+                        egui::ComboBox::from_id_salt("folder-pattern-kind").selected_text(tr(ui, if rule.folder_pattern == "*" { "All subfolders" } else if rule.folder_pattern.is_empty() { "Source folder only" } else { "Custom pattern" })).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut rule.folder_pattern, "*".into(),tr(ui, "All subfolders"));
+                            ui.selectable_value(&mut rule.folder_pattern, String::new(),tr(ui, "Source folder only"));
+                            if ui.selectable_label(!rule.folder_pattern.is_empty() && rule.folder_pattern != "*",tr(ui, "Custom pattern")).clicked() { rule.folder_pattern = "Projects/*".into(); }
                         });
                         if rule.folder_pattern != "*" && !rule.folder_pattern.is_empty() { field(ui, "Relative folder pattern", &mut rule.folder_pattern); }
                         caption(ui, "* includes all subfolders; blank matches the source folder itself.");
@@ -597,19 +660,19 @@ impl Organizer {
                         size_field(ui, "Maximum size", (&rule.id, "max"), &mut rule.max_bytes); caption(ui, "0 means no size limit.");
                     });
                     section(ui, "Put them in place");
-                    ui.horizontal(|ui| {
-                        for action in [Action::Move, Action::Copy, Action::Rename] { ui.selectable_value(&mut rule.action, action, format!("{action:?}")); }
+                    ui.horizontal_wrapped(|ui| {
+                        for action in [Action::Move, Action::Copy, Action::Rename] { ui.selectable_value(&mut rule.action, action, tr(ui, action_name(action))); }
                     });
                     if rule.action != Action::Rename {
                         if folders::folder_field(ui, &rule.id, "Destination folder", &mut rule.destination, &saved) { browse_rule = Some((rule.id.clone(), rule.destination.clone())); }
                         caption(ui, "Choosing a folder also allows this rule to put files there. Pasted paths must be inside a saved destination.");
                     }
                     if rule.action == Action::Rename { rename_field(ui, rule); }
-                    else { egui::CollapsingHeader::new("Rename files too (optional)").default_open(rule.name_template != "{name}").show(ui, |ui| rename_field(ui, rule)); }
+                    else { egui::CollapsingHeader::new(tr(ui, "Rename files too (optional)")).default_open(rule.name_template != "{name}").show(ui, |ui| rename_field(ui, rule)); }
                     section(ui, "If a filename already exists");
                     ui.horizontal(|ui| {
-                        ui.selectable_value(&mut rule.conflict, Conflict::Skip, "Skip this file");
-                        ui.selectable_value(&mut rule.conflict, Conflict::KeepBoth, "Keep both");
+                        ui.selectable_value(&mut rule.conflict, Conflict::Skip,tr(ui, "Skip this file"));
+                        ui.selectable_value(&mut rule.conflict, Conflict::KeepBoth,tr(ui, "Keep both"));
                     });
                     caption(ui, "Existing files are never overwritten.");
                 });
@@ -657,9 +720,9 @@ impl Organizer {
                                     _ => "Needs attention",
                                 })
                                 .color(if entry.phase == "Done" {
-                                    ACCENT
+                                    colors(ui).accent
                                 } else {
-                                    MUTED
+                                    colors(ui).muted
                                 }),
                             );
                             ui.with_layout(
@@ -668,7 +731,7 @@ impl Organizer {
                                     if ui
                                         .add_enabled(
                                             entry.phase == "Done" && self.pending == 0,
-                                            egui::Button::new("Undo"),
+                                            egui::Button::new(tr(ui, "Undo")),
                                         )
                                         .clicked()
                                     {
@@ -685,16 +748,23 @@ impl Organizer {
                             ),
                         );
                         path_label(ui, &entry.operation.source.display().to_string());
-                        path_label(ui, &format!("to {}", entry.operation.destination.display()));
+                        path_label(
+                            ui,
+                            &formatted(
+                                ui,
+                                "to {}",
+                                &format!("to {}", entry.operation.destination.display()),
+                            ),
+                        );
                         if !entry.error.is_empty() {
-                            ui.colored_label(ERROR, &entry.error);
+                            ui.colored_label(colors(ui).error, &entry.error);
                         }
                     });
                     ui.add_space(8.0);
                 }
-                egui::CollapsingHeader::new("Session details").show(ui, |ui| {
+                egui::CollapsingHeader::new(tr(ui, "Session details")).show(ui, |ui| {
                     for (_, text) in self.messages.iter().rev() {
-                        ui.label(text);
+                        ui.label(translate_status(ui, text));
                     }
                 });
             });
@@ -704,12 +774,32 @@ impl Organizer {
     }
 
     fn settings_view(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(tr(ui, "Language"));
+            egui::ComboBox::from_id_salt("language")
+                .selected_text(self.config.language.native_name())
+                .show_ui(ui, |ui| {
+                    for language in Language::ALL {
+                        ui.selectable_value(
+                            &mut self.config.language,
+                            language,
+                            language.native_name(),
+                        );
+                    }
+                });
+            ui.add_space(12.0);
+            ui.label(tr(ui, "Theme"));
+            ui.selectable_value(&mut self.config.theme, Theme::Light, tr(ui, "Light"));
+            ui.selectable_value(&mut self.config.theme, Theme::Dark, tr(ui, "Dark"));
+        });
+        caption(ui, "Language and theme are saved automatically.");
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
             for (i, label) in ["Folders", "AI Hub", "Automation", "Updates & about"]
                 .iter()
                 .enumerate()
             {
-                ui.selectable_value(&mut self.settings_tab, i, *label);
+                ui.selectable_value(&mut self.settings_tab, i, tr(ui, label));
             }
         });
         ui.add_space(16.0);
@@ -719,11 +809,11 @@ impl Organizer {
                 0 => {
                     section(ui, "Folders to organize"); caption(ui, "Only these folders are scanned. Choose existing local folders.");
                     if let Some((index, initial)) = roots(ui, "source", &mut self.config.source_roots) { browse = Some((Target::Source(index), initial)); }
-                    ui.checkbox(&mut self.config.recursive, "Include subfolders");
+                    ui.checkbox(&mut self.config.recursive,tr(ui, "Include subfolders"));
                     section(ui, "Allowed destinations"); caption(ui, "AI and rules may create subfolders here. Other locations stay out of reach.");
                     if let Some((index, initial)) = roots(ui, "destination", &mut self.config.destination_roots) { browse = Some((Target::Allowed(index), initial)); }
-                    egui::CollapsingHeader::new("File readiness").show(ui, |ui| {
-                        ui.horizontal(|ui| { ui.label("Wait for a file to stop changing"); ui.add(egui::DragValue::new(&mut self.config.settle_seconds).range(2..=60).suffix(" seconds")); });
+                    egui::CollapsingHeader::new(tr(ui, "File readiness")).show(ui, |ui| {
+                        ui.horizontal(|ui| { ui.label(tr(ui, "Wait for a file to stop changing")); ui.add(egui::DragValue::new(&mut self.config.settle_seconds).range(2..=60).suffix(tr(ui, " seconds"))); });
                         caption(ui, "Downloads still in progress are skipped. Output folders are not scanned again.");
                     });
                     if self.dirty { caption(ui, "Save changes above when your folders are ready."); }
@@ -733,30 +823,30 @@ impl Organizer {
                     section(ui, "Review first. Automate when ready.");
                     caption(ui, "Every launch starts paused. Monitoring continues only while FileOrganizer is open.");
                     ui.add_space(12.0);
-                    ui.checkbox(&mut self.auto_approved, "I reviewed my setup and want files organized automatically");
+                    ui.checkbox(&mut self.auto_approved,tr(ui, "I reviewed my setup and want files organized automatically"));
                     ui.add_space(8.0);
                     if primary(ui, "Start automatic organization", self.auto_approved && self.pending == 0 && setup_target(&self.config).is_none()).clicked() {
                         self.send(Command::Watch { config: self.config.clone(), automatic: true }); self.dirty = false;
                     }
                     caption(ui, "For approval on every batch, use Watch for changes on the Review screen.");
-                    if self.config.mode == PlanningMode::AiHub { caption(ui, format!("AI proposals below {}% confidence stay in Review. Confidence is the model’s estimate. Up to 100 files per batch; requests are made only after monitoring starts.", self.config.ai.minimum_confidence)); }
+                    if self.config.mode == PlanningMode::AiHub { caption(ui, formatted(ui, "AI proposals below {}% confidence stay in Review. Confidence is the model’s estimate. Up to 100 files per batch; requests are made only after monitoring starts.", &format!("AI proposals below {}% confidence stay in Review. Confidence is the model’s estimate. Up to 100 files per batch; requests are made only after monitoring starts.", self.config.ai.minimum_confidence))); }
                     section(ui, "Undo stays available"); caption(ui, "Automatic changes use the same history and recovery checks as approved batches.");
                 }
                 _ => {
-                    section(ui, "FileOrganizer"); caption(ui, format!("Installed version {} · Windows x64", updater::VERSION));
-                    ui.checkbox(&mut self.config.startup_updates, "Check for updates on startup");
+                    section(ui, "FileOrganizer"); caption(ui, formatted(ui, "Installed version {} · Windows x64", &format!("Installed version {} · Windows x64", updater::VERSION)));
+                    ui.checkbox(&mut self.config.startup_updates,tr(ui, "Check for updates on startup"));
                     ui.horizontal_wrapped(|ui| {
-                        if ui.add_enabled(!self.update_busy, egui::Button::new("Check for updates")).clicked() { self.update_status = "Checking for updates…".into(); self.update_command(UpdateCommand::Check); }
+                        if ui.add_enabled(!self.update_busy, egui::Button::new(tr(ui, "Check for updates"))).clicked() { self.update_status = "Checking for updates…".into(); self.update_command(UpdateCommand::Check); }
                         if let Some(update) = self.available_update.clone()
-                            && primary(ui, "Download and install", !self.update_busy && !self.watching).on_hover_text("Downloads a verified update and restarts FileOrganizer.").clicked() {
+                            && primary(ui, "Download and install", !self.update_busy && !self.watching).on_hover_text(tr(ui, "Downloads a verified update and restarts FileOrganizer.")).clicked() {
                                 self.update_status = "Downloading and verifying…".into(); self.download_progress = 0.0; self.update_command(UpdateCommand::Download(update));
                             }
                     });
                     if self.update_busy { ui.add(egui::ProgressBar::new(self.download_progress).show_percentage()); }
                     caption(ui, &self.update_status);
-                    ui.hyperlink_to("Project & releases", updater::REPOSITORY);
+                    ui.hyperlink_to(tr(ui, "Project & releases"), updater::REPOSITORY);
                     section(ui, "Your data"); caption(ui, "Settings and undo history stay on this computer. AI analysis sends filenames and relative folders to your configured AI Hub; short text excerpts are optional. Update checks contact GitHub.");
-                    egui::CollapsingHeader::new("Data location & support").show(ui, |ui| {
+                    egui::CollapsingHeader::new(tr(ui, "Data location & support")).show(ui, |ui| {
                         path_label(ui, &self.directory.display().to_string()); caption(ui, "Updates preserve your settings and undo history.");
                     });
                 }
@@ -770,8 +860,8 @@ impl Organizer {
 
 fn surface<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
     Frame::new()
-        .fill(Color32::WHITE)
-        .stroke(Stroke::new(1.0, BORDER))
+        .fill(colors(ui).surface)
+        .stroke(Stroke::new(1.0, colors(ui).border))
         .inner_margin(Margin::same(18))
         .corner_radius(10)
         .show(ui, |ui| {
@@ -781,7 +871,7 @@ fn surface<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
         .inner
 }
 pub(super) fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
-    ui.label(RichText::new(label).strong());
+    ui.label(RichText::new(tr(ui, label)).strong());
     ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
 }
 fn rename_field(ui: &mut egui::Ui, rule: &mut Rule) {
@@ -789,14 +879,15 @@ fn rename_field(ui: &mut egui::Ui, rule: &mut Rule) {
     caption(ui, "{name} = full name · {stem} = name · {ext} = extension");
 }
 fn path_label(ui: &mut egui::Ui, path: &str) {
-    ui.add(egui::Label::new(RichText::new(path).small().color(MUTED)).truncate())
+    ui.add(egui::Label::new(RichText::new(path).small().color(colors(ui).muted)).truncate())
         .on_hover_text(path);
 }
 fn notice(ui: &mut egui::Ui, color: Color32, text: &str) {
+    let text = translate_status(ui, text);
     ui.horizontal(|ui| {
         ui.colored_label(color, "•");
-        ui.add(egui::Label::new(text).truncate())
-            .on_hover_text(text);
+        ui.add(egui::Label::new(&text).truncate())
+            .on_hover_text(&text);
     });
     ui.add_space(8.0);
 }
@@ -812,10 +903,10 @@ fn roots(
             ui.horizontal(|ui| {
                 let width = (ui.available_width() - 192.0).max(100.0);
                 folders::edit_path(ui, path, width);
-                if ui.button("Choose…").clicked() {
+                if ui.button(tr(ui, "Choose…")).clicked() {
                     browse = Some((Some(i), path.clone()));
                 }
-                if ui.button("Remove").clicked() {
+                if ui.button(tr(ui, "Remove")).clicked() {
                     remove = Some(i);
                 }
             });
@@ -825,7 +916,20 @@ fn roots(
         paths.remove(i);
     }
     ui.horizontal_wrapped(|ui| {
-        if ui.button(format!("+ Add {kind} folder…")).clicked() {
+        if ui
+            .button(format!(
+                "+ {}",
+                tr(
+                    ui,
+                    if kind == "source" {
+                        "Add source folder…"
+                    } else {
+                        "Add destination folder…"
+                    }
+                )
+            ))
+            .clicked()
+        {
             browse = Some((
                 None,
                 paths
@@ -835,7 +939,7 @@ fn roots(
                     .unwrap_or_default(),
             ));
         }
-        if ui.small_button("Paste a path instead").clicked() {
+        if ui.small_button(tr(ui, "Paste a path instead")).clicked() {
             paths.push(String::new());
         }
     });
@@ -887,7 +991,7 @@ fn size_field(
     let multiplier = 1024_u64.pow(unit as u32) as f64;
     let mut value = *bytes as f64 / multiplier;
     ui.horizontal(|ui| {
-        ui.label(label);
+        ui.label(tr(ui, label));
         if ui
             .add(
                 egui::DragValue::new(&mut value)

@@ -26,7 +26,7 @@ impl Organizer {
             ui,
             "Choosing a folder also allows AI to create its categories there. Pasted paths must be inside a saved destination.",
         );
-        ui.strong("How would you like files organized?");
+        ui.strong(tr(ui, "How would you like files organized?"));
         ui.add(
             egui::TextEdit::multiline(&mut self.config.ai.goal)
                 .desired_rows(2)
@@ -34,13 +34,13 @@ impl Organizer {
                 .desired_width(f32::INFINITY),
         );
         ui.horizontal(|ui| {
-            ui.label("Action");
-            ui.selectable_value(&mut self.config.ai.action, Action::Move, "Move");
-            ui.selectable_value(&mut self.config.ai.action, Action::Copy, "Copy");
+            ui.label(tr(ui, "Action"));
+            ui.selectable_value(&mut self.config.ai.action, Action::Move, tr(ui, "Move"));
+            ui.selectable_value(&mut self.config.ai.action, Action::Copy, tr(ui, "Copy"));
         });
         ui.checkbox(
             &mut self.config.ai.include_text,
-            "Include short text excerpts for better context",
+            tr(ui, "Include short text excerpts for better context"),
         );
         caption(
             ui,
@@ -48,10 +48,10 @@ impl Organizer {
         );
         ui.checkbox(
             &mut self.config.ai.allow_rename,
-            "Let AI suggest clearer filenames",
+            tr(ui, "Let AI suggest clearer filenames"),
         );
         ui.horizontal(|ui| {
-            ui.label("Recommended confidence");
+            ui.label(tr(ui, "Recommended confidence"));
             ui.add(
                 egui::DragValue::new(&mut self.config.ai.minimum_confidence)
                     .range(1..=100)
@@ -63,31 +63,31 @@ impl Organizer {
             "Lower estimates stay for manual review in automatic mode. Confidence is a model estimate, not a guarantee.",
         );
         ui.add_space(12.0);
-        egui::CollapsingHeader::new("Hub connection & access token").show(ui, |ui| {
+        egui::CollapsingHeader::new(tr(ui, "Hub connection & access token")).show(ui, |ui| {
         field(ui, "AI Hub base URL", &mut self.config.ai.base_url);
         ui.add_space(8.0);
-        ui.strong("Access token");
+        ui.strong(tr(ui, "Access token"));
         ui.add(
             egui::TextEdit::singleline(&mut self.token_input)
                 .password(true)
-                .hint_text("Your AI Hub token")
+                .hint_text(tr(ui, "Your AI Hub token"))
                 .desired_width(f32::INFINITY),
         );
         ui.horizontal_wrapped(|ui| {
             if ui
                 .add_enabled(
                     !self.token_input.is_empty(),
-                    egui::Button::new("Save token"),
+                    egui::Button::new(tr(ui, "Save token")),
                 )
                 .clicked()
             {
                 let token = zeroize::Zeroizing::new(std::mem::take(&mut self.token_input));
                 self.send(Command::SaveAiToken(self.config.ai.clone(), token));
             }
-            if ui.button("Remove saved token").clicked() {
+            if ui.button(tr(ui, "Remove saved token")).clicked() {
                 self.send(Command::RemoveAiToken(self.config.ai.clone()));
             }
-            if ui.button("Test connection").clicked() {
+            if ui.button(tr(ui, "Test connection")).clicked() {
                 self.ai_status = "Checking the universal route…".into();
                 self.send(Command::CheckAi(self.config.ai.clone()));
             }
@@ -99,24 +99,31 @@ impl Organizer {
         caption(ui, &self.ai_status);
         ui.add_space(12.0);
         });
-        egui::CollapsingHeader::new("Advanced connection & filename conflicts").show(ui, |ui| {
-            ui.checkbox(
-                &mut self.config.ai.allow_http_lan,
-                "Allow unencrypted HTTP to a trusted remote hub",
-            );
-            caption(
-                ui,
-                "Localhost HTTP works by default. Use HTTPS for remote connections.",
-            );
-            ui.horizontal(|ui| {
-                ui.label("Existing filename");
-                ui.selectable_value(
-                    &mut self.config.ai.conflict,
-                    Conflict::KeepBoth,
-                    "Keep both",
+        egui::CollapsingHeader::new(tr(ui, "Advanced connection & filename conflicts")).show(
+            ui,
+            |ui| {
+                ui.checkbox(
+                    &mut self.config.ai.allow_http_lan,
+                    tr(ui, "Allow unencrypted HTTP to a trusted remote hub"),
                 );
-                ui.selectable_value(&mut self.config.ai.conflict, Conflict::Skip, "Skip");
-            });
-        });
+                caption(
+                    ui,
+                    "Localhost HTTP works by default. Use HTTPS for remote connections.",
+                );
+                ui.horizontal(|ui| {
+                    ui.label(tr(ui, "Existing filename"));
+                    ui.selectable_value(
+                        &mut self.config.ai.conflict,
+                        Conflict::KeepBoth,
+                        tr(ui, "Keep both"),
+                    );
+                    ui.selectable_value(
+                        &mut self.config.ai.conflict,
+                        Conflict::Skip,
+                        tr(ui, "Skip"),
+                    );
+                });
+            },
+        );
     }
 }

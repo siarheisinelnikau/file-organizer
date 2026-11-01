@@ -238,17 +238,8 @@ impl ApplicationHandler<Wake> for Host {
                 .with_min_inner_size(winit::dpi::LogicalSize::new(960.0, 680.0));
             #[cfg(windows)]
             let attributes = {
-                use winit::platform::windows::{Color, WindowAttributesExtWindows};
-                let background = crate::design::CANVAS;
-                let text = crate::design::INK;
-                attributes
-                    .with_taskbar_icon(Some(icon))
-                    .with_title_background_color(Some(Color::from_rgb(
-                        background.r(),
-                        background.g(),
-                        background.b(),
-                    )))
-                    .with_title_text_color(Color::from_rgb(text.r(), text.g(), text.b()))
+                use winit::platform::windows::WindowAttributesExtWindows;
+                attributes.with_taskbar_icon(Some(icon))
             };
             let window = Arc::new(event_loop.create_window(attributes)?);
             let context = softbuffer::Context::new(window.clone())

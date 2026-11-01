@@ -87,7 +87,8 @@ impl Renderer {
                 .collect(),
             free: output.textures_delta.free.drain().map(texture_id).collect(),
         };
-        let mut pixels = vec![[246, 248, 247, 255]; width as usize * height as usize];
+        let background = ctx.style().visuals.panel_fill.to_array();
+        let mut pixels = vec![background; width as usize * height as usize];
         self.backend.render(
             &mut BufferMutRef::new(&mut pixels, width as usize, height as usize),
             &meshes,

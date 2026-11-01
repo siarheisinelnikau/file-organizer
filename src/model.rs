@@ -117,6 +117,8 @@ impl Rule {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub language: crate::localization::Language,
+    pub theme: crate::localization::Theme,
     pub mode: PlanningMode,
     pub ai: AiSettings,
     pub source_roots: Vec<String>,
@@ -130,6 +132,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            language: crate::localization::Language::default(),
+            theme: crate::localization::Theme::default(),
             mode: PlanningMode::Rules,
             ai: AiSettings::default(),
             source_roots: Vec::new(),

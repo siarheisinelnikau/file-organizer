@@ -1,6 +1,6 @@
 //! A finite, scrubbable illustration. Only pure planners see these example facts.
 use super::*;
-use egui::{Align2, Color32, FontId, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
+use egui::{Align2, FontId, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use file_organizer::{ai, engine};
 use std::{
     collections::HashSet,
@@ -204,42 +204,48 @@ impl Guide {
         self.tick(Instant::now());
         let before = (self.mode, self.action, self.kind.clone(), self.threshold);
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut self.mode, PlanningMode::Rules, "Manual rules");
+            ui.selectable_value(&mut self.mode, PlanningMode::Rules, tr(ui, "Manual rules"));
             ui.selectable_value(&mut self.mode, PlanningMode::AiHub, "AI Hub");
             caption(ui, "Demo only · no file actions");
         });
         ui.horizontal_wrapped(|ui| {
-            ui.label("Action");
-            ui.selectable_value(&mut self.action, Action::Move, "Move");
-            ui.selectable_value(&mut self.action, Action::Copy, "Copy");
+            ui.label(tr(ui, "Action"));
+            ui.selectable_value(&mut self.action, Action::Move, tr(ui, "Move"));
+            ui.selectable_value(&mut self.action, Action::Copy, tr(ui, "Copy"));
             if self.mode == PlanningMode::Rules {
-                ui.label("File type");
+                ui.label(tr(ui, "File type"));
                 egui::ComboBox::from_id_salt("guide-kind")
                     .width(135.0)
-                    .selected_text(if self.kind == "Downloads" {
-                        "Archives"
-                    } else {
-                        &self.kind
-                    })
+                    .selected_text(tr(
+                        ui,
+                        if self.kind == "Downloads" {
+                            "Archives"
+                        } else {
+                            &self.kind
+                        },
+                    ))
                     .show_ui(ui, |ui| {
                         for kind in ["Documents", "Photos", "Downloads"] {
                             ui.selectable_value(
                                 &mut self.kind,
                                 kind.into(),
-                                if kind == "Downloads" {
-                                    "Archives"
-                                } else {
-                                    kind
-                                },
+                                tr(
+                                    ui,
+                                    if kind == "Downloads" {
+                                        "Archives"
+                                    } else {
+                                        kind
+                                    },
+                                ),
                             );
                         }
                     });
             } else {
-                ui.label("Recommend at");
+                ui.label(tr(ui, "Recommend at"));
                 ui.add(
                     egui::DragValue::new(&mut self.threshold)
                         .range(1..=100)
-                        .suffix("% confidence"),
+                        .suffix(tr(ui, "% confidence")),
                 );
             }
         });
@@ -251,7 +257,14 @@ impl Guide {
             match self.build_example() {
                 Ok(example) => self.example = Some(example),
                 Err(e) => {
-                    ui.colored_label(ERROR, format!("Example unavailable: {e}"));
+                    ui.colored_label(
+                        colors(ui).error,
+                        formatted(
+                            ui,
+                            "Example unavailable: {e}",
+                            &format!("Example unavailable: {e}"),
+                        ),
+                    );
                     return;
                 }
             }
@@ -284,7 +297,7 @@ impl Guide {
                     ui.add(
                         egui::Slider::new(&mut self.position, 0.0..=1.0)
                             .show_value(false)
-                            .text("Timeline"),
+                            .text(tr(ui, "Timeline")),
                     )
                 })
                 .inner;
@@ -295,7 +308,7 @@ impl Guide {
                 ui,
                 format!("{:02} / 16 s", (self.position * SECONDS).round() as u32),
             );
-            if ui.button("Reset").clicked() {
+            if ui.button(tr(ui, "Reset")).clicked() {
                 self.scrub(0.0);
             }
         });
@@ -303,7 +316,7 @@ impl Guide {
         ui.horizontal_wrapped(|ui| {
             for (index, name) in STAGES.iter().enumerate() {
                 if ui
-                    .selectable_label(stage == index, format!("{}  {name}", index + 1))
+                    .selectable_label(stage == index, format!("{}  {}", index + 1, tr(ui, name)))
                     .clicked()
                 {
                     self.scrub(index as f32 / 5.0);
@@ -350,14 +363,20 @@ impl Guide {
                 "Activity keeps a record of each change. Undo restores the original path, dates and attributes after checking for conflicts.",
             ),
         };
-        ui.strong(title);
+        ui.strong(tr(ui, title));
         caption(ui, detail);
         ui.add_space(4.0);
         self.scene(ui);
         let count = self.example.as_ref().unwrap().selected.len();
         caption(
             ui,
-            format!("{count} selected of 3 · Drag the timeline or change the example settings."),
+            formatted(
+                ui,
+                "{count} selected of 3 · Drag the timeline or change the example settings.",
+                &format!(
+                    "{count} selected of 3 · Drag the timeline or change the example settings."
+                ),
+            ),
         );
         if self.playing {
             ui.ctx().request_repaint_after(Duration::from_millis(33));
@@ -369,8 +388,8 @@ impl Guide {
         painter.rect(
             rect,
             10.0,
-            Color32::WHITE,
-            Stroke::new(1.0, BORDER),
+            colors(ui).surface,
+            Stroke::new(1.0, colors(ui).border),
             StrokeKind::Inside,
         );
         let width = (rect.width() - 88.0) / 2.0;
@@ -383,8 +402,8 @@ impl Guide {
             painter.rect(
                 panel,
                 8.0,
-                CANVAS,
-                Stroke::new(1.0, BORDER),
+                colors(ui).canvas,
+                Stroke::new(1.0, colors(ui).border),
                 StrokeKind::Inside,
             );
         }
@@ -392,20 +411,23 @@ impl Guide {
         painter.text(
             left.min + vec2(12.0, 12.0),
             Align2::LEFT_TOP,
-            "Downloads",
+            tr(ui, "Downloads"),
             FontId::proportional(16.0),
-            INK,
+            colors(ui).ink,
         );
         painter.text(
             right.min + vec2(12.0, 12.0),
             Align2::LEFT_TOP,
-            if stage < 3 {
-                "Proposed folders"
-            } else {
-                "Organized"
-            },
+            tr(
+                ui,
+                if stage < 3 {
+                    "Proposed folders"
+                } else {
+                    "Organized"
+                },
+            ),
             FontId::proportional(16.0),
-            INK,
+            colors(ui).ink,
         );
         let example = self.example.as_ref().unwrap();
         for (index, file) in example.files.iter().enumerate() {
@@ -418,9 +440,9 @@ impl Guide {
                 left_row,
                 5.0,
                 if amount > 0.0 && amount < 1.0 {
-                    TINT
+                    colors(ui).tint
                 } else {
-                    Color32::WHITE
+                    colors(ui).surface
                 },
             );
             painter.text(
@@ -428,7 +450,11 @@ impl Guide {
                 Align2::LEFT_TOP,
                 &file.name,
                 FontId::proportional(14.0),
-                if left_visible { INK } else { MUTED },
+                if left_visible {
+                    colors(ui).ink
+                } else {
+                    colors(ui).muted
+                },
             );
             let status = if !file.selected && stage >= 2 {
                 if file.destination.is_some() {
@@ -446,19 +472,27 @@ impl Guide {
             painter.text(
                 left_row.min + vec2(8.0, 25.0),
                 Align2::LEFT_TOP,
-                status,
+                tr(ui, status),
                 FontId::proportional(12.0),
-                MUTED,
+                colors(ui).muted,
             );
             if stage > 0
                 && (stage < 3 || file.selected)
                 && let Some(destination) = &file.destination
             {
-                let color = if file.selected { ACCENT } else { WARNING };
+                let color = if file.selected {
+                    colors(ui).accent
+                } else {
+                    colors(ui).warning
+                };
                 painter.rect_filled(
                     right_row,
                     5.0,
-                    if amount >= 1.0 { TINT } else { Color32::WHITE },
+                    if amount >= 1.0 {
+                        colors(ui).tint
+                    } else {
+                        colors(ui).surface
+                    },
                 );
                 let row = painter.with_clip_rect(right_row.shrink(5.0));
                 row.text(
@@ -467,15 +501,19 @@ impl Guide {
                     destination,
                     FontId::proportional(12.0),
                     if stage < 3 || amount > 0.0 {
-                        INK
+                        colors(ui).ink
                     } else {
-                        MUTED
+                        colors(ui).muted
                     },
                 );
                 let status = match self.destination_status(file, amount) {
                     FileStatus::Review => {
                         file.confidence.map_or("Not selected".into(), |confidence| {
-                            format!("{confidence}% · review first")
+                            formatted(
+                                ui,
+                                "{confidence}% · review first",
+                                &format!("{confidence}% · review first"),
+                            )
                         })
                     }
                     FileStatus::Done => "Done".into(),
@@ -487,16 +525,21 @@ impl Guide {
                         "Moving…"
                     }
                     .into(),
-                    FileStatus::Suggested => file
-                        .confidence
-                        .map_or("Selected for review".into(), |confidence| {
-                            format!("{confidence}% · recommended")
-                        }),
+                    FileStatus::Suggested => {
+                        file.confidence
+                            .map_or("Selected for review".into(), |confidence| {
+                                formatted(
+                                    ui,
+                                    "{confidence}% · recommended",
+                                    &format!("{confidence}% · recommended"),
+                                )
+                            })
+                    }
                 };
                 row.text(
                     right_row.min + vec2(8.0, 25.0),
                     Align2::LEFT_TOP,
-                    status,
+                    translate_status(ui, &status),
                     FontId::proportional(12.0),
                     color,
                 );
@@ -514,16 +557,16 @@ impl Guide {
                     flying,
                     5.0,
                     if removing_copy {
-                        TINT.gamma_multiply(amount)
+                        colors(ui).tint.gamma_multiply(amount)
                     } else {
-                        TINT
+                        colors(ui).tint
                     },
                     Stroke::new(
                         1.0,
                         if removing_copy {
-                            ACCENT.gamma_multiply(amount)
+                            colors(ui).accent.gamma_multiply(amount)
                         } else {
-                            ACCENT
+                            colors(ui).accent
                         },
                     ),
                     StrokeKind::Inside,
@@ -533,7 +576,7 @@ impl Guide {
                     Align2::CENTER_CENTER,
                     file.name.rsplit('.').next().unwrap(),
                     FontId::proportional(11.0),
-                    ACCENT,
+                    colors(ui).accent,
                 );
             }
         }
@@ -543,24 +586,24 @@ impl Guide {
             painter.text(
                 middle,
                 Align2::CENTER_CENTER,
-                "Undo",
+                tr(ui, "Undo"),
                 FontId::proportional(12.0),
-                MUTED,
+                colors(ui).muted,
             );
         } else {
             painter.arrow(
                 middle - vec2(18.0 * direction, 0.0),
                 vec2(36.0 * direction, 0.0),
-                Stroke::new(2.0, ACCENT),
+                Stroke::new(2.0, colors(ui).accent),
             );
         }
         if stage == 0 {
             painter.text(
                 right.center(),
                 Align2::CENTER_CENTER,
-                "Choose a destination",
+                tr(ui, "Choose a destination"),
                 FontId::proportional(14.0),
-                MUTED,
+                colors(ui).muted,
             );
         }
     }
