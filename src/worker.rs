@@ -62,6 +62,10 @@ pub enum AiCompletion {
 
 pub enum Event {
     Loaded(Config),
+    AppearanceSaved {
+        language: crate::localization::Language,
+        theme: crate::localization::Theme,
+    },
     Plan {
         generation: u64,
         plan: Plan,
@@ -369,6 +373,7 @@ fn run(
                     config.language = language;
                     config.theme = theme;
                     journal.save_config(&config)?;
+                    emit(Event::AppearanceSaved { language, theme });
                 }
                 Some(Command::Save(value)) => {
                     cancel_ai(&mut ai_task, emit);

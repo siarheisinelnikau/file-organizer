@@ -2,6 +2,31 @@
 
 Latest verification: 2026-11-01 (Europe/Minsk).
 
+## Localization and appearance, 0.4.0
+
+The interface now has an embedded catalog of 340 authored messages in Russian, French, German, Spanish and Italian with complete English keys/fallback. Settings exposes native language names and persistent Light / Dark controls above its tabs. The catalog audit includes navigation, review, rules, AI preferences/connection errors, standard worker/recovery/update statuses, the walkthrough and native folder-chooser titles. Proper names, paths, saved rule names, model/user content, developer-only capture messages and detailed operating-system/network diagnostics keep their original text. Catalog tests reject missing/empty translations, duplicate keys and changed formatting placeholders.
+
+The new display settings default to English/light for existing configurations. Missing or unknown future values preserve the rest of the saved data. An appearance-only worker command saves just those preferences without cancelling AI, stopping watching, clearing the reviewed plan or committing unsaved rule edits. Shutdown also preserves an unacknowledged display change. A fixture test waits for the initial watcher scan, changes preferences, checks its explicit acknowledgement, verifies no plan reset/pause, closes the worker and reads the saved database.
+
+Both palettes cover custom surfaces, primary/muted text, borders, selections, warnings/errors, the walkthrough painter, standard popups and CPU-canvas background. Native decorations follow egui's selected theme through the existing viewport integration; fixed light caption overrides were removed. Source review confirms the same CPU rasterizer and softbuffer GDI path, retained bitmap, dirty/drawable guard and Wait/WaitUntil scheduling. Appearance changes add one useful repaint, with no recurring timer. The existing hidden-invalidation/restore regression remains passing. This is source and fixture evidence, not a normal runtime performance measurement.
+
+Completed checks for 0.4.0:
+
+- `cargo fmt --all --check` and `git diff --check`: passed.
+- `cargo clippy --offline --locked --all-targets -- -D warnings`: passed.
+- `cargo test --offline --locked --all-targets -- --test-threads=2`: 57 passed, 0 failed, 1 previously ignored loopback-HTTP fixture. Breakdown: 2 catalog/formatting, 15 binary/UI/rendering, 10 AI and 30 core tests. All filesystem activity uses isolated fixture folders; no native window was created.
+- `python scripts/test_versioning.py`: 2 passed. `scripts/test_package_policy.ps1`: passed.
+- Optimized Windows x64 build with the repository-local target and two Cargo jobs: passed. Packaging uses the existing package-policy guard and independently validates the final PE and embedded icons without launching the application.
+- `python scripts/inspect_executable.py target/x86_64-pc-windows-msvc/release/file-organizer.exe --expect-version 0.4.0 --icon assets/FileOrganizer.ico`: passed. AMD64, Windows GUI subsystem, FileVersion/ProductVersion 0.4.0.0; all nine icon payloads match. The final asset is 12,596,736 bytes, with no external MSVC runtime import.
+
+```text
+94b7b8930d15ee788f81ec0660df15fdcc31818dbe1d94df883434c71035d0f9  FileOrganizer-v0.4.0.exe
+```
+
+No 0.4.0 application launch, capture, native input, real user-folder access, updater installation or model/network request was performed. Current repository instructions prohibit launches/screenshots for this session. README images remain real 0.3.1 English/light screenshots and are labeled as historical evidence; updated main/settings localization/dark screenshots are unavailable. Native titlebar/input/layout checks and visible-idle/hidden/restore CPU/frame/present measurements remain unverified. No normal runtime rendering gate is claimed passed from the build, tests or static PE inspection.
+
+## Historical validation context, 0.3.x
+
 Computer use, desktop capture, normal GUI interaction, real user-folder watches, updater download/installation, external AI APIs, system changes and remote Git operations have not been performed. The design follow-up authorizes isolated application-generated visual review: the executable's finite headless branch renders only fixture UI and exits, without creating a native window, opening the user database or starting file/update workers. Compilation and these images do not certify native interaction or idle performance.
 
 ## Shared updater and rendering audit, 0.3.1
