@@ -1,0 +1,12 @@
+{
+  "repository": "siarheisinelnikau/file-organizer",
+  "product": "FileOrganizer",
+  "kind": "desktop",
+  "assets": [
+    {
+      "name": "FileOrganizer-v{version}.exe"
+    }
+  ],
+  "notices": true,
+  "checksum_aliases": []
+}
